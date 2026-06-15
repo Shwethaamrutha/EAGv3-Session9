@@ -269,7 +269,7 @@ Same dashboard from Session 8, extended with browser-specific tabs:
 ## Demo Queries
 
 ```
-Find the top 5 storied on https://news.ycombinator.com/
+Find the top 5 stories on https://news.ycombinator.com/
 ```
 
 ```
