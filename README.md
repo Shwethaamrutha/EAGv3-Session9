@@ -12,7 +12,7 @@
 
 ## Overview
 
-AXON's planner routes queries to the appropriate skill. When a task requires interacting with a live website — filling forms, clicking filters, extracting dynamic content — it routes to the browser skill instead of the researcher.
+ΛXÖN's planner routes queries to the appropriate skill. When a task requires interacting with a live website — filling forms, clicking filters, extracting dynamic content — it routes to the browser skill instead of the researcher.
 
 The orchestrator handles everything else: NetworkX DAG construction, parallel execution via asyncio, typed edges between nodes, FastAPI + WebSocket dashboard for live observability, and atomic session persistence for replay.
 
