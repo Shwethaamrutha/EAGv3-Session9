@@ -1,8 +1,8 @@
-# AXON — Autonomous Web Navigation Agent
+# ΛXÖN — Autonomous Web Navigation Agent
 
 ### DAG-Orchestrated Browser Automation with Cost-Optimized Cascade
 
-> *AXON is a multi-skill agent built on a DAG orchestrator. It decomposes complex queries into parallel skill nodes — researcher, retriever, distiller, summariser, critic, formatter, coder, comparator, screener, fact_checker — all powered by MCP tools. The **browser** skill adds live web navigation: opening a real Chromium instance, reading the page structure, and deciding what to click, type, or filter — autonomously.*
+> *ΛXÖN is a multi-skill agent built on a DAG orchestrator. It decomposes complex queries into parallel skill nodes — researcher, retriever, distiller, summariser, critic, formatter, coder, comparator, screener, fact_checker — all powered by MCP tools. The **browser** skill adds live web navigation: opening a real Chromium instance, reading the page structure, and deciding what to click, type, or filter — autonomously.*
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue)](https://python.org)
 [![Playwright](https://img.shields.io/badge/Browser-Playwright-green)](https://playwright.dev/python/)
