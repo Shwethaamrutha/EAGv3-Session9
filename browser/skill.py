@@ -766,9 +766,9 @@ Example responses:
         # Handle done
         if done_result is not None:
             await emit("a11y_thought", turn=turn, thought=f"DONE — extracted {len(done_result)} chars")
-            # Final screenshot (viewport only, same size as other screenshots)
+            # Final screenshot (full page for complete evidence)
             final_ss = str(screenshots_dir / f"{node_id}_final.png")
-            await driver.screenshot(final_ss)
+            await driver.screenshot(final_ss, full_page=True)
             screenshots.append(final_ss)
             # Determine path label based on whether VLM was actually called
             path_label = "a11y+vision" if vision_was_used else "a11y"
@@ -898,9 +898,9 @@ async def _run_a11y_loop(
             await driver.screenshot(screenshot_path)
             screenshots.append(screenshot_path)
 
-            # Final screenshot (viewport only)
+            # Final screenshot (full page for complete evidence)
             final_ss_path = str(screenshots_dir / f"{node_id}_final.png")
-            await driver.screenshot(final_ss_path)
+            await driver.screenshot(final_ss_path, full_page=True)
             screenshots.append(final_ss_path)
 
             content = action_data.get("content", "")
@@ -1224,7 +1224,7 @@ Respond with ONLY a JSON array."""
             await emit("a11y_thought", turn=turn, thought=f"Vision DONE — extracted {len(done_result)} chars")
             await emit("vision_done", turns=turn + 1)
             final_ss = str(screenshots_dir / f"{node_id}_final.png")
-            await driver.screenshot(final_ss)
+            await driver.screenshot(final_ss, full_page=True)
             screenshots.append(final_ss)
             return BrowserResult(
                 success=True, content=done_result, layer_used="vision",
