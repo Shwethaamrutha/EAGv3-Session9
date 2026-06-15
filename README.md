@@ -152,7 +152,7 @@ Sessions persist to disk and can be replayed by selecting from the session histo
 | NoBroker | Search + BHK filter + extract | A11y |
 | npm | Search + extract | A11y |
 | 99acres | Search + multi-filter | A11y + Vision |
-| tldraw / Excalidraw | Canvas drawing (drag) | Vision |
+| tldraw / Excalidraw | Canvas drawing (drag) | A11y |
 
 ---
 
