@@ -268,25 +268,63 @@ Same dashboard from Session 8, extended with browser-specific tabs:
 
 ## Demo Queries
 
+### Hacker News — Static Extraction (Layer 1)
+
 ```
 Find the top 5 stories on https://news.ycombinator.com/
 ```
+
+| ![](S9-Screenshots/HN-A.png) | ![](S9-Screenshots/HN-B.png) |
+|:---:|:---:|
+
+---
+
+### GitHub Trending — Python Repositories
 
 ```
 Find trending Python repositories this week on https://github.com/
 ```
 
+| ![](S9-Screenshots/PythonTrending-A.png) | ![](S9-Screenshots/PythonTrending-B.png) |
+|:---:|:---:|
+| ![](S9-Screenshots/PythonTrending-C.png) | ![](S9-Screenshots/PythonTrending-D.png) |
+
+---
+
+### Google Scholar — Browser Agent Papers
+
 ```
 Find recent papers about browser agents published in 2026 on https://scholar.google.com
 ```
+
+| ![](S9-Screenshots/GoogleScholar-A.png) | ![](S9-Screenshots/GoogleScholar-B.png) |
+|:---:|:---:|
+| ![](S9-Screenshots/GoogleScholar-C.png) | ![](S9-Screenshots/GoogleScholar-D.png) |
+
+---
+
+### Cleartrip Flights — Complex Form Interaction
 
 ```
 Find cheapest flights from Bangalore to Delhi next weekend on https://www.cleartrip.com
 ```
 
+| ![](S9-Screenshots/Flight-A.png) | ![](S9-Screenshots/Flight-B.png) |
+|:---:|:---:|
+| ![](S9-Screenshots/Flight-C.png) | ![](S9-Screenshots/Flight-D.png) |
+| ![](S9-Screenshots/Flight-E.png) | |
+
+---
+
+### NoBroker Rentals — Filters + Slider
+
 ```
 Find 2BHK flats for rent under 35000 in Koramangala on https://www.nobroker.in
 ```
+
+| ![](S9-Screenshots/Rent-A.png) | ![](S9-Screenshots/Rent-B.png) |
+|:---:|:---:|
+| ![](S9-Screenshots/Rent-C.png) | |
 
 ---
 
