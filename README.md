@@ -71,7 +71,7 @@ The orchestrator handles everything else: NetworkX DAG construction, parallel ex
 ║   │   │ ──▶ Playwright + 2-Pass Element Scan (ARIA roles + cursor:pointer)       │   │   ║
 ║   │   │ ──▶ Outermost-wins dedup (preserves gridcell, slider, form controls)     │   │   ║
 ║   │   │ ──▶ Compact numbered list (40-130 items) sent to LLM                     │   │   ║
-║   │   │ ──▶ Claude returns structured JSON {"thought", "actions"}                │   │   ║
+║   │   │ ──▶ LLM returns structured JSON {"thought", "actions"}                   │   │   ║
 ║   │   │ ──▶ Execute via Playwright (click by DOM index) ──┐                      │   │   ║
 ║   │   │      ▲                                            │                      │   │   ║
 ║   │   │      └────────────────────────────────────────────┘ (3-8 turns)          │   │   ║
