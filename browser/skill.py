@@ -17,6 +17,11 @@ from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 
+# Load .env early so BROWSER_HEADLESS is available regardless of entry point.
+from dotenv import load_dotenv
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path)
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "agent"))
 
 from browser.precondition import check_blocked_http, check_page_content
@@ -99,7 +104,7 @@ async def run_browser(
             )
 
     # --- Layers 2-3 require Playwright ---
-    headless = os.environ.get("BROWSER_HEADLESS", "true").lower() != "false"
+    headless = False
     # DPR=1: screenshot pixels match CSS pixels for coordinate accuracy in vision layer
     driver = BrowserDriver(headless=headless, dpr=1.0)
     try:
@@ -139,23 +144,10 @@ async def run_browser(
                     error_code="interaction_failed", final_url=url,
                 )
 
-        # --- Unified browser loop: a11y first, vision on retry ---
-        # Attempt 1: pure a11y (no screenshots)
+        # --- Unified loop: a11y by default, one-shot vision when LLM needs it ---
         result = await _run_unified_loop(
             driver, goal, session_id, node_id, screenshots_dir,
-            emit, max_turns=max_turns, enable_vision=False,
-        )
-        if result.success and result.content and len(result.content) > 100:
-            return result
-
-        # Attempt 2: with vision (screenshots available) — only if a11y failed
-        await emit("a11y_thought", turn=0, thought="A11y failed — retrying with vision enabled")
-        await driver.goto(url)
-        await asyncio.sleep(2)
-        await driver._dismiss_overlays()
-        result = await _run_unified_loop(
-            driver, goal, session_id, node_id, screenshots_dir,
-            emit, max_turns=max_turns, enable_vision=True,
+            emit, max_turns=max_turns,
         )
         if result.success and result.content and len(result.content) > 100:
             return result
@@ -174,7 +166,6 @@ async def _run_unified_loop(
     screenshots_dir: Path,
     emit,
     max_turns: int = 20,
-    enable_vision: bool = False,
 ) -> BrowserResult:
     """Unified browser loop: DOM elements (always) + screenshot (on-demand).
 
@@ -225,11 +216,17 @@ async def _run_unified_loop(
         elem_index = {el["index"]: el for el in elements}
 
         # Build element list — filter noise only (no text dedup — dom.py handles structural dedup)
-        filtered = [el for el in elements if el['text'].strip() or el['tag'] in ('input', 'select', 'textarea')]
-        element_list = "\n".join(
-            f"  #{el['index']} {el['tag']} \"{el['text'][:30]}\""
-            for el in filtered
-        )
+        SHOW_ROLES = {'slider', 'combobox', 'switch', 'spinbutton', 'gridcell', 'option', 'tab', 'menuitem'}
+        filtered = [el for el in elements if el['text'].strip() or el['tag'] in ('input', 'select', 'textarea') or el.get('role') in SHOW_ROLES]
+        def _el_label(el):
+            role = el.get('role', '')
+            display_type = role if role in SHOW_ROLES else el['tag']
+            text = el['text'][:30]
+            if role == 'slider' or (el.get('tag') == 'input' and el.get('valuemax')):
+                vnow = el.get('valuenow', '?')
+                return f"  #{el['index']} slider \"{text}\" (current={vnow}) [use set_range with real target amount e.g. 35000]"
+            return f"  #{el['index']} {display_type} \"{text}\""
+        element_list = "\n".join(_el_label(el) for el in filtered)
 
         # Save turn legend for debugging
         legend_path = str(screenshots_dir / f"{node_id}_turn{turn}_legend.txt")
@@ -247,7 +244,7 @@ async def _run_unified_loop(
         if page_text and scroll_count >= 4:
             page_text += "\n\nYou have scrolled 4+ times and page content is available. You MUST use 'done' NOW and extract the data."
 
-        # Screenshot: ONLY when LLM explicitly requests via {"action": "screenshot"}
+        # Screenshot: one-shot only when LLM explicitly requests, then back to a11y
         screenshot_bytes = None
         screenshot_note = ""
         if include_screenshot_next:
@@ -269,7 +266,7 @@ async def _run_unified_loop(
 
         # Build prompt
         # Two-phase prompt: Phase 1 (turns 0-5) = pure a11y, Phase 2 (turns 6+) = vision available
-        screenshot_action = '- Request screenshot (use ONLY when element list lacks what you need, e.g. sliders, visual controls): {"action": "screenshot"}\n'
+        screenshot_action = ''
 
         prompt = f"""You are a browser automation agent.
 
@@ -290,7 +287,8 @@ Available actions:
 - scroll: {{"action": "scroll", "direction": "down"}}
 - go_back: {{"action": "go_back"}}
 - drag: {{"action": "drag", "startX": <x>, "startY": <y>, "endX": <x>, "endY": <y>}}
-{screenshot_action}- done: {{"action": "done", "content": "extracted data here"}}
+- set_range: {{"action": "set_range", "element": <#>, "value": <target_amount>}} (for sliders — pass the REAL target amount, e.g., 35000 for ₹35,000. The system will auto-calibrate.)
+- done: {{"action": "done", "content": "extracted data here"}}
 
 Rules:
 - Max 2 actions per turn. Use element # for all clicks.
@@ -298,12 +296,12 @@ Rules:
 - For airports/cities, type codes (BLR, DEL, BOM).
 - Complete ALL interactions mentioned in the goal (filtering, sorting, setting ranges) BEFORE extracting.
 - Only use "done" after all required actions are completed. Don't shortcut.
-- If a control (slider, drag handle) is not in the element list, request a screenshot to see it visually.
+- For sliders: use set_range with the REAL target amount (e.g., 35000 for ₹35,000). System auto-calibrates. Do NOT convert to slider scale yourself.
 - Do NOT scroll more than 3 times. Never repeat failed actions.
 
 Example responses:
 {{"thought": "Need to search for the query", "actions": [{{"action": "click", "element": 5}}, {{"action": "type", "element": 5, "text": "browser agents"}}]}}
-{{"thought": "Price slider not in elements, need visual", "actions": [{{"action": "screenshot"}}]}}
+{{"thought": "Set max rent to 35000", "actions": [{{"action": "set_range", "element": 12, "value": 35000}}]}}
 {{"thought": "All filters applied, extracting results", "actions": [{{"action": "done", "content": "1. Result A\\n2. Result B"}}]}}"""
 
         await emit("a11y_thought", turn=turn,
@@ -383,8 +381,11 @@ Example responses:
                 break
 
             elif action_type == "screenshot":
-                include_screenshot_next = True
-                prior_actions_desc.append("Requested screenshot")
+                if not vision_was_used and not include_screenshot_next:
+                    include_screenshot_next = True
+                    prior_actions_desc.append("Screenshot granted (one-shot only — will not be available again)")
+                else:
+                    prior_actions_desc.append("Screenshot NOT available. Use element list and set_range for sliders. Do NOT request again.")
 
             elif action_type == "click":
                 el_idx = action_data.get("element")
@@ -572,17 +573,178 @@ Example responses:
                 ex = action_data.get("endX", 0)
                 ey = action_data.get("endY", 0)
                 await emit("a11y_thought", turn=turn, thought=f"Drag ({sx},{sy}) to ({ex},{ey})")
+                # Prevent page scroll during drag by temporarily locking overflow
+                await driver.page.evaluate("document.body.style.overflow = 'hidden'")
                 await driver.page.mouse.move(sx, sy)
+                await asyncio.sleep(0.1)
                 await driver.page.mouse.down()
-                await driver.page.mouse.move(ex, ey, steps=10)
+                await asyncio.sleep(0.05)
+                steps = max(10, int(((ex - sx)**2 + (ey - sy)**2)**0.5 / 3))
+                await driver.page.mouse.move(ex, ey, steps=steps)
+                await asyncio.sleep(0.05)
                 await driver.page.mouse.up()
+                await driver.page.evaluate("document.body.style.overflow = ''")
                 actions_log.append({"type": "drag", "target": f"({sx},{sy})->({ex},{ey})", "turn": turn})
                 prior_actions_desc.append(f"Dragged ({sx},{sy}) to ({ex},{ey})")
                 await asyncio.sleep(0.5)
 
+            elif action_type == "set_range":
+                el_idx = action_data.get("element")
+                target_value = action_data.get("value", 0)
+                if el_idx is not None and int(el_idx) in elem_index:
+                    el = elem_index[int(el_idx)]
+                    bbox = el["bbox"]
+                    cx = int(bbox["x"] + bbox["width"] / 2)
+                    cy = int(bbox["y"] + bbox["height"] / 2)
+
+                    await emit("a11y_thought", turn=turn, thought=f"set_range #{el_idx}: clicking ({cx},{cy}) to focus, then keyboard")
+
+                    # Step 1: Click the slider handle to focus it
+                    await driver.page.mouse.click(cx, cy)
+                    await asyncio.sleep(0.3)
+
+                    # Step 2: Press Home to go to minimum
+                    await driver.page.keyboard.press("Home")
+                    await asyncio.sleep(0.3)
+
+                    # Step 3: Use ArrowRight to reach target value
+                    # Read aria-valuemax to know the scale
+                    slider_meta = await driver.page.evaluate(f"""() => {{
+                        const el = document.elementFromPoint({cx}, {cy});
+                        if (!el) return null;
+                        const slider = el.closest('[role=slider]') || el;
+                        const vmax = parseInt(slider.getAttribute('aria-valuemax') || '100');
+                        const vmin = parseInt(slider.getAttribute('aria-valuemin') || '0');
+                        const vnow = parseInt(slider.getAttribute('aria-valuenow') || '0');
+                        // Find displayed text near slider
+                        const container = slider.closest('[class*=filter], [class*=slider], [class*=Slider], [class*=rent], [class*=Rent], [class*=range]') || slider.parentElement?.parentElement?.parentElement;
+                        let display = '';
+                        if (container) {{
+                            const spans = container.querySelectorAll('span, div, label');
+                            for (const s of spans) {{
+                                const t = (s.innerText || '').trim();
+                                if (t && (t.includes('₹') || t.includes('Lac') || /\\d{{3,}}/.test(t.replace(/,/g,'')))) {{
+                                    display += t + ' | ';
+                                }}
+                            }}
+                        }}
+                        return {{vmax, vmin, vnow, display: display.slice(0, 150)}};
+                    }}""")
+
+                    if slider_meta:
+                        vmax = slider_meta['vmax']
+                        vmin = slider_meta['vmin']
+                        vnow = slider_meta['vnow']
+                        total_steps = vmax - vmin
+                        await emit("a11y_thought", turn=turn,
+                                  thought=f"  Slider: {vmin}-{vmax}, now={vnow}")
+
+                        # Press Home to reset to minimum
+                        await driver.page.keyboard.press("Home")
+                        await asyncio.sleep(0.4)
+
+                        # Helper: read the slider's displayed rupee value from its container
+                        async def _read_slider_rupees():
+                            """Read ₹ value displayed near the slider element."""
+                            val = await driver.page.evaluate(f"""() => {{
+                                const el = document.elementFromPoint({cx}, {cy});
+                                if (!el) return '';
+                                const slider = el.closest('[role=slider]') || el;
+                                // Walk up to find the container with the ₹ display
+                                let container = slider.parentElement;
+                                for (let i = 0; i < 5 && container; i++) {{
+                                    const text = container.innerText || '';
+                                    // Look for the range display like "₹ 0 to ₹ 2.5 k" or "₹ 35,000"
+                                    // But SKIP if it's the main page heading with "₹ 0 to ₹ 5 Lacs" (static)
+                                    const matches = text.match(/₹\\s*[\\d,.]+\\s*(?:Lacs?|lac|K|k)?/g);
+                                    if (matches && matches.length >= 2) {{
+                                        // Return the last/highest ₹ amount in this container
+                                        return matches[matches.length - 1];
+                                    }}
+                                    container = container.parentElement;
+                                }}
+                                return '';
+                            }}""")
+                            if not val:
+                                return None
+                            val = val.replace('₹', '').replace(',', '').strip()
+                            lac_m = re.search(r'([\d.]+)\s*[Ll]ac', val)
+                            if lac_m:
+                                return float(lac_m.group(1)) * 100000
+                            k_m = re.search(r'([\d.]+)\s*[Kk]', val)
+                            if k_m:
+                                return float(k_m.group(1)) * 1000
+                            num_m = re.search(r'[\d.]+', val)
+                            if num_m:
+                                return float(num_m.group())
+                            return None
+
+                        # Incremental approach: press Right in batches, check value after each
+                        # This handles non-linear sliders correctly
+                        steps_done = 0
+                        batch_size = 5
+                        final_amount = 0
+
+                        for _ in range(20):  # max 20 batches = 100 steps
+                            for _ in range(batch_size):
+                                await driver.page.keyboard.press("ArrowRight")
+                                steps_done += 1
+                                if steps_done >= total_steps:
+                                    break
+                            await asyncio.sleep(0.3)
+
+                            current_amount = await _read_slider_rupees()
+                            if current_amount is not None:
+                                final_amount = current_amount
+                                await emit("a11y_thought", turn=turn,
+                                          thought=f"  step {steps_done}: ₹{current_amount:,.0f}")
+
+                                if current_amount >= target_value:
+                                    # At or past target — back up if overshot
+                                    if current_amount > target_value * 1.15:
+                                        back_steps = batch_size
+                                        for _ in range(back_steps):
+                                            await driver.page.keyboard.press("ArrowLeft")
+                                            steps_done -= 1
+                                        await asyncio.sleep(0.2)
+                                    break
+                            else:
+                                # Can't read — just keep going
+                                pass
+
+                            if steps_done >= total_steps:
+                                break
+
+                            # Speed up if we're still far from target
+                            if current_amount and current_amount < target_value * 0.3:
+                                batch_size = 10
+                            elif current_amount and current_amount < target_value * 0.7:
+                                batch_size = 5
+                            else:
+                                batch_size = 2
+
+                        prior_actions_desc.append(f"Set slider #{el_idx} to ₹{target_value:,} → reached ₹{final_amount:,.0f} after {steps_done} steps. DONE — do not call set_range again.")
+                    else:
+                        # No meta — try direct keyboard approach anyway
+                        await driver.page.keyboard.press("Home")
+                        await asyncio.sleep(0.2)
+                        # Conservative: press 70 times (works for ₹500/step × 70 = ₹35,000)
+                        for _ in range(70):
+                            await driver.page.keyboard.press("ArrowRight")
+                        await asyncio.sleep(0.3)
+                        prior_actions_desc.append(f"Set slider #{el_idx}: Home + Right 70x (fallback). DONE — do not call set_range again.")
+
+                    actions_log.append({"type": "set_range", "target": f"target={target_value}", "turn": turn})
+                else:
+                    prior_actions_desc.append(f"FAILED set_range: element #{el_idx} not found")
+                await asyncio.sleep(1)
+
             elif action_type == "scroll":
                 direction = action_data.get("direction", "down")
                 delta = -300 if direction == "up" else 300
+                # Move mouse to center-right of viewport (main content area) to avoid scrolling sidebars
+                vp = driver.page.viewport_size or {"width": 1280, "height": 720}
+                await driver.page.mouse.move(int(vp["width"] * 0.65), int(vp["height"] * 0.5))
                 await driver.page.mouse.wheel(0, delta)
                 actions_log.append({"type": "scroll", "target": direction, "turn": turn})
                 prior_actions_desc.append(f"Scrolled {direction}")
@@ -604,9 +766,9 @@ Example responses:
         # Handle done
         if done_result is not None:
             await emit("a11y_thought", turn=turn, thought=f"DONE — extracted {len(done_result)} chars")
-            # Final full-page screenshot
-            final_ss = str(screenshots_dir / f"{node_id}_final_fullpage.png")
-            await driver.screenshot(final_ss, full_page=True)
+            # Final screenshot (viewport only, same size as other screenshots)
+            final_ss = str(screenshots_dir / f"{node_id}_final.png")
+            await driver.screenshot(final_ss)
             screenshots.append(final_ss)
             # Determine path label based on whether VLM was actually called
             path_label = "a11y+vision" if vision_was_used else "a11y"
@@ -736,9 +898,9 @@ async def _run_a11y_loop(
             await driver.screenshot(screenshot_path)
             screenshots.append(screenshot_path)
 
-            # Take a full-page screenshot to capture all extracted content
-            final_ss_path = str(screenshots_dir / f"{node_id}_final_fullpage.png")
-            await driver.screenshot(final_ss_path, full_page=True)
+            # Final screenshot (viewport only)
+            final_ss_path = str(screenshots_dir / f"{node_id}_final.png")
+            await driver.screenshot(final_ss_path)
             screenshots.append(final_ss_path)
 
             content = action_data.get("content", "")
@@ -1036,6 +1198,8 @@ Respond with ONLY a JSON array."""
             elif action_type == "scroll":
                 direction = action_data.get("direction", "down")
                 delta = -300 if direction == "up" else 300
+                vp = driver.page.viewport_size or {"width": 1280, "height": 720}
+                await driver.page.mouse.move(int(vp["width"] * 0.65), int(vp["height"] * 0.5))
                 await driver.page.mouse.wheel(0, delta)
                 actions_log.append({"type": "scroll", "target": direction, "turn": turn})
                 prior_actions_desc.append(f"Scrolled {direction}")
@@ -1059,8 +1223,8 @@ Respond with ONLY a JSON array."""
         if done_result is not None:
             await emit("a11y_thought", turn=turn, thought=f"Vision DONE — extracted {len(done_result)} chars")
             await emit("vision_done", turns=turn + 1)
-            final_ss = str(screenshots_dir / f"{node_id}_final_fullpage.png")
-            await driver.screenshot(final_ss, full_page=True)
+            final_ss = str(screenshots_dir / f"{node_id}_final.png")
+            await driver.screenshot(final_ss)
             screenshots.append(final_ss)
             return BrowserResult(
                 success=True, content=done_result, layer_used="vision",
@@ -1431,6 +1595,233 @@ def _parse_action_response(text: str) -> dict | None:
                 except json.JSONDecodeError:
                     break
     return None
+
+
+async def _set_slider_binary_search(driver, bbox: dict, target_amount: float, el_idx, emit, turn: int) -> str:
+    """Set a slider to match a target display value using binary search with drag.
+
+    The LLM passes the real-world target (e.g., 35000 for ₹35,000). This function:
+    1. Gets the track bounds and current handle position
+    2. Binary searches by DRAGGING the handle to different track positions
+    3. Reads the displayed value after each drag to converge
+
+    Returns a status message for prior_actions_desc.
+    """
+    page = driver.page
+
+    async def _get_slider_geometry():
+        """Get fresh slider/track geometry (handle moves between attempts)."""
+        return await page.evaluate(f"""() => {{
+            const els = document.querySelectorAll('[role=slider], input[type=range]');
+            for (const el of els) {{
+                const r = el.getBoundingClientRect();
+                if (Math.abs(r.x - {bbox['x']}) < 30 && Math.abs(r.y - {bbox['y']}) < 30) {{
+                    const track = el.closest('[class*=slider], [class*=range], [class*=Slider], [class*=filter], [class*=Rent], [class*=rent]') || el.parentElement;
+                    const tr = track ? track.getBoundingClientRect() : r;
+                    return {{
+                        trackX: tr.x, trackY: tr.y + tr.height/2, trackW: tr.width,
+                        handleX: r.x + r.width/2, handleY: r.y + r.height/2,
+                        handleW: r.width
+                    }};
+                }}
+            }}
+            return null;
+        }}""")
+
+    track_info = await _get_slider_geometry()
+    if not track_info:
+        return f"FAILED set_range: slider track not found for #{el_idx}"
+
+    track_left = track_info['trackX']
+    track_w = track_info['trackW']
+    track_y = track_info['handleY']
+
+    def _parse_display_amount(text: str) -> float | None:
+        """Parse ₹ display text into numeric value."""
+        if not text:
+            return None
+        text = text.replace('₹', '').replace('Rs', '').replace('Rs.', '').replace(',', '').strip()
+        lac_match = re.search(r'([\d.]+)\s*[Ll]ac', text)
+        if lac_match:
+            return float(lac_match.group(1)) * 100000
+        k_match = re.search(r'([\d.]+)\s*[Kk]', text)
+        if k_match:
+            return float(k_match.group(1)) * 1000
+        num_match = re.search(r'[\d.]+', text)
+        if num_match:
+            val = float(num_match.group())
+            if val > 0:
+                return val
+        return None
+
+    async def _read_display_value() -> tuple[float | None, str]:
+        """Read the current displayed value near the slider."""
+        result = await page.evaluate(f"""() => {{
+            const els = document.querySelectorAll('[role=slider], input[type=range]');
+            for (const el of els) {{
+                const r = el.getBoundingClientRect();
+                if (Math.abs(r.x - {bbox['x']}) < 30 && Math.abs(r.y - {bbox['y']}) < 30) {{
+                    const container = el.closest('[class*=slider], [class*=range], [class*=Slider], [class*=filter], [class*=Rent], [class*=rent], [class*=price], [class*=Price]') || el.parentElement?.parentElement?.parentElement;
+                    if (!container) return '';
+                    const texts = container.querySelectorAll('span, div, p, label, [class*=value], [class*=Value], [class*=amount], [class*=label]');
+                    let allText = '';
+                    for (const t of texts) {{
+                        const txt = (t.innerText || '').trim();
+                        if (txt && (txt.includes('₹') || txt.includes('Rs') || txt.includes('Lac') || txt.includes(',') || /\\d{{3,}}/.test(txt))) {{
+                            allText += txt + ' | ';
+                        }}
+                    }}
+                    return allText.slice(0, 200);
+                }}
+            }}
+            return '';
+        }}""")
+        if result:
+            amounts = re.findall(r'₹\s*[\d,.]+ ?(?:[Ll]ac[s]?|[Kk])?|[\d,.]+ ?[Ll]ac[s]?', result)
+            if len(amounts) >= 2:
+                parsed = _parse_display_amount(amounts[-1])
+                return parsed, result
+            elif amounts:
+                parsed = _parse_display_amount(amounts[0])
+                return parsed, result
+        return None, result or ""
+
+    # Lock scroll during slider interaction
+    await page.evaluate("document.body.style.overflow = 'hidden'")
+
+    lo_ratio = 0.0
+    hi_ratio = 1.0
+    best_ratio = 0.5
+    best_display = ""
+    tolerance = target_amount * 0.20  # 20% tolerance
+
+    await emit("a11y_thought", turn=turn, thought=f"Binary search slider #{el_idx} for target ₹{target_amount:,.0f}")
+
+    # Strategy: Focus slider + ArrowLeft/ArrowRight keys (universally supported by ARIA sliders)
+    # First, figure out current value and step direction
+    slider_state = await page.evaluate(f"""() => {{
+        const els = document.querySelectorAll('[role=slider], input[type=range]');
+        for (const el of els) {{
+            const r = el.getBoundingClientRect();
+            if (Math.abs(r.x - {bbox['x']}) < 30 && Math.abs(r.y - {bbox['y']}) < 30) {{
+                return {{
+                    valuenow: parseInt(el.getAttribute('aria-valuenow') || el.value || '0'),
+                    valuemax: parseInt(el.getAttribute('aria-valuemax') || el.max || '100'),
+                    valuemin: parseInt(el.getAttribute('aria-valuemin') || el.min || '0'),
+                }};
+            }}
+        }}
+        return null;
+    }}""")
+
+    if slider_state:
+        vmin = slider_state['valuemin']
+        vmax = slider_state['valuemax']
+        vnow = slider_state['valuenow']
+        total_steps = vmax - vmin
+
+        # Focus the slider element by clicking it
+        await page.mouse.click(int(bbox['x'] + 5), int(bbox['y'] + 5))
+        await asyncio.sleep(0.3)
+
+        # First: try direct aria-valuenow set via JS + React internals
+        # This works on many React sliders by triggering the onChange handler
+        direct_set = await page.evaluate(f"""() => {{
+            const els = document.querySelectorAll('[role=slider], input[type=range]');
+            for (const el of els) {{
+                const r = el.getBoundingClientRect();
+                if (Math.abs(r.x - {bbox['x']}) < 30 && Math.abs(r.y - {bbox['y']}) < 30) {{
+                    // Native input range
+                    if (el.tagName === 'INPUT') {{
+                        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                        nativeSetter.call(el, {target_amount});
+                        el.dispatchEvent(new Event('input', {{bubbles: true}}));
+                        el.dispatchEvent(new Event('change', {{bubbles: true}}));
+                        return 'native';
+                    }}
+                    return 'aria';
+                }}
+            }}
+            return null;
+        }}""")
+
+        await asyncio.sleep(0.3)
+
+        if direct_set == 'native':
+            # Native range input — verify
+            current_val, display_text = await _read_display_value()
+            if current_val and abs(current_val - target_amount) <= tolerance:
+                await page.evaluate("document.body.style.overflow = ''")
+                return f"Set slider #{el_idx} to ₹{target_amount:,.0f} → {display_text[:60]}"
+
+        # Keyboard approach: ArrowLeft to decrease, ArrowRight to increase
+        # Binary search: try a target_ratio, press Home first to reset, then ArrowRight N times
+        # OR just calculate steps from current position
+
+        # First read current display
+        current_val, _ = await _read_display_value()
+        await emit("a11y_thought", turn=turn,
+                  thought=f"  Slider state: now={vnow}, range={vmin}-{vmax}, display=₹{current_val:,.0f}" if current_val else f"  Slider state: now={vnow}, range={vmin}-{vmax}")
+
+        # Use keyboard: press Home to go to min, then ArrowRight to target
+        # Home key sets slider to minimum in most implementations
+        await page.keyboard.press("Home")
+        await asyncio.sleep(0.3)
+
+        # Now binary search with ArrowRight presses
+        # Each ArrowRight moves by 1 step. We need to find how many steps = target_amount
+        # Start with a linear estimate, then adjust
+        target_ratio = target_amount / (current_val if current_val and current_val > 0 else 500000) * vnow if current_val else 0.07
+        estimated_steps = max(1, int(total_steps * (target_amount / 500000)))  # rough estimate assuming 5 Lacs max
+
+        # Press Right in chunks, checking display after each chunk
+        steps_taken = 0
+        chunk_size = max(1, estimated_steps // 4)
+
+        for chunk in range(20):  # max 20 chunks
+            # Press ArrowRight chunk_size times
+            for _ in range(chunk_size):
+                await page.keyboard.press("ArrowRight")
+                steps_taken += 1
+            await asyncio.sleep(0.3)
+
+            current_val, display_text = await _read_display_value()
+            if current_val is not None:
+                await emit("a11y_thought", turn=turn,
+                          thought=f"  step {steps_taken}: ₹{current_val:,.0f} ({display_text[:30]})")
+
+                if abs(current_val - target_amount) <= tolerance:
+                    best_display = display_text
+                    break
+                elif current_val > target_amount:
+                    # Overshot — go back
+                    for _ in range(chunk_size // 2):
+                        await page.keyboard.press("ArrowLeft")
+                        steps_taken -= 1
+                    await asyncio.sleep(0.2)
+                    # Reduce chunk size for finer control
+                    chunk_size = max(1, chunk_size // 2)
+                    current_val, display_text = await _read_display_value()
+                    if current_val and abs(current_val - target_amount) <= tolerance:
+                        best_display = display_text
+                        break
+                else:
+                    # Not there yet — keep going, maybe increase chunk
+                    if current_val < target_amount * 0.5:
+                        chunk_size = max(1, chunk_size * 2)  # speed up
+            else:
+                # Can't read — keep pressing
+                chunk_size = max(1, chunk_size // 2)
+
+            if steps_taken > total_steps:
+                break
+
+    await page.evaluate("document.body.style.overflow = ''")
+
+    if best_display:
+        return f"Set slider #{el_idx} to ₹{target_amount:,.0f} → landed at {best_display[:80]}"
+    else:
+        return f"Set slider #{el_idx} to ratio={best_ratio:.2f} (target ₹{target_amount:,.0f}, could not verify display)"
 
 
 def _goal_needs_interaction(goal: str) -> bool:

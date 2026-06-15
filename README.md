@@ -1,8 +1,8 @@
-# AXON — Browser Agent
+# AXON — Autonomous Web Navigation Agent
 
-### Autonomous Web Navigation with DAG Orchestration
+### DAG-Orchestrated Browser Automation with Cost-Optimized Cascade
 
-> *A cost-optimized browser agent that navigates the live web through a 4-layer cascade. DOM-first interaction for speed; vision on-demand for precision. The orchestrator plans a graph of skills; the browser skill handles everything from static extraction to complex form workflows.*
+> *AXON is a multi-skill agent built on a DAG orchestrator. It decomposes complex queries into parallel skill nodes — researcher, retriever, distiller, summariser, critic, formatter, coder, comparator, screener, fact_checker — all powered by MCP tools. The **browser** skill adds live web navigation: opening a real Chromium instance, reading the page structure, and deciding what to click, type, or filter — autonomously.*
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue)](https://python.org)
 [![Playwright](https://img.shields.io/badge/Browser-Playwright-green)](https://playwright.dev/python/)
@@ -10,80 +10,211 @@
 
 ---
 
-## Architecture
+## Overview
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                               USER QUERY                                      │
-└─────────────────────────────────────┬────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  PLANNER                                                                      │
-│  Decomposes query into skill nodes with typed inputs and dependencies          │
-└─────────────────────────────────────┬────────────────────────────────────────┘
-                                      │
-              ┌───────────────────────┼───────────────────────┐
-              ▼                       ▼                       ▼
-┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
-│    Researcher    │    │   Browser Skill  │    │    Formatter     │
-│  web_search      │    │   4-Layer Cascade│    │  final answer    │
-│  fetch_url       │    │                  │    │                  │
-└──────────────────┘    └────────┬─────────┘    └──────────────────┘
-                                 │
-                                 ▼
-                    ┌─────────────────────────┐
-                    │  Layer 1: Extract       │──→ httpx + trafilatura
-                    │  Layer 2: Deterministic │──→ CSS selectors
-                    │  Layer 3: A11y          │──→ DOM elements + LLM
-                    │  Layer 4: Vision        │──→ Screenshot + VLM
-                    └─────────────────────────┘
-```
+AXON's planner routes queries to the appropriate skill. When a task requires interacting with a live website — filling forms, clicking filters, extracting dynamic content — it routes to the browser skill instead of the researcher.
+
+The orchestrator handles everything else: NetworkX DAG construction, parallel execution via asyncio, typed edges between nodes, FastAPI + WebSocket dashboard for live observability, and atomic session persistence for replay.
 
 ---
 
-## Browser Skill: 4-Layer Cascade
+## Architecture
 
-The browser skill picks the cheapest correct path for each page:
+```
+╔══════════════════════════════════════════════════════════════════════════════════════════╗
+║                                    AXON SYSTEM                                          ║
+╠══════════════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                          ║
+║   ┌─────────────┐         ┌────────────────────────────────────────────────────────┐    ║
+║   │  Dashboard  │◄━━━━━━━━┤  WebSocket Event Stream (actions, tokens, screenshots) │    ║
+║   │  :8080      │         └───────────────────────────┬────────────────────────────┘    ║
+║   └─────────────┘                                     │                                  ║
+║                                                       │ on_event()                       ║
+║   ┌─────────────────────────────────────────────────────────────────────────────────┐   ║
+║   │                           DAG ORCHESTRATOR (flow.py)                             │   ║
+║   │                                                                                  │   ║
+║   │    User Query ──▶ ┌─────────┐ ──▶ NetworkX DAG ──▶ Parallel Executor            │   ║
+║   │                   │ PLANNER │     (typed edges)     (asyncio.gather)             │   ║
+║   │                   └─────────┘                                                    │   ║
+║   │                        │                                                         │   ║
+║   │    ┌──────────┬──────────┬───┼───┬──────────┬───────────┬──────────┐              │   ║
+║   │    ▼          ▼          ▼   ▼   ▼          ▼           ▼          ▼              │   ║
+║   │ ┌────────┐┌─────────┐┌──────┐┌──────┐┌─────────┐┌──────────┐┌─────────┐        │   ║
+║   │ │research││retriever ││browser││coder ││distiller││comparator││formatter│        │   ║
+║   │ │ (MCP)  ││(vectors) ││(NEW) ││(exec)││(reduce) ││ (merge)  ││(output) │        │   ║
+║   │ └────────┘└─────────┘└───┬───┘└──────┘└─────────┘└──────────┘└─────────┘        │   ║
+║   │                           │    + summariser, critic, screener, fact_checker       │   ║
+║   │                           │                                                      │   ║
+║   └───────────────────────────┼──────────────────────────────────────────────────────┘   ║
+║                               │                                                          ║
+║   ┌───────────────────────────▼──────────────────────────────────────────────────────┐   ║
+║   │                     BROWSER SKILL — 4-LAYER CASCADE                              │   ║
+║   │                                                                                  │   ║
+║   │   ┌──────────────────────────────────────────────────────────────────────────┐   │   ║
+║   │   │ LAYER 1: Static Extraction (Cheapest)                                    │   │   ║
+║   │   │ ──▶ HTTP GET (httpx) + Trafilatura text extraction                       │   │   ║
+║   │   │ ──▶ LLM Validation ("Does this answer the goal?")                        │   │   ║
+║   │   └───────────────────────────────┬──────────────────────────────────────────┘   │   ║
+║   │                          [Yes] ──▶ DONE (~200 tokens)                            │   ║
+║   │                          [No / SPA]                                              │   ║
+║   │                                   │                                              │   ║
+║   │   ┌───────────────────────────────▼──────────────────────────────────────────┐   │   ║
+║   │   │ LAYER 2: CSS Selectors (Deterministic)                                   │   │   ║
+║   │   │ ──▶ Pre-written site maps & IDs                                          │   │   ║
+║   │   │ ──▶ Zero LLM cost                                                        │   │   ║
+║   │   └───────────────────────────────┬──────────────────────────────────────────┘   │   ║
+║   │                          [Yes] ──▶ DONE (0 LLM cost)                             │   ║
+║   │                          [No / No selectors]                                     │   ║
+║   │                                   │                                              │   ║
+║   │   ┌───────────────────────────────▼──────────────────────────────────────────┐   │   ║
+║   │   │ LAYER 3: A11y Interaction Loop (The Workhorse)                           │   │   ║
+║   │   │ ──▶ Playwright + 2-Pass Element Scan (ARIA roles + cursor:pointer)       │   │   ║
+║   │   │ ──▶ Outermost-wins dedup (preserves gridcell, slider, form controls)     │   │   ║
+║   │   │ ──▶ Compact numbered list (40-130 items) sent to Claude on Bedrock       │   │   ║
+║   │   │ ──▶ Claude returns structured JSON {"thought", "actions"}                │   │   ║
+║   │   │ ──▶ Execute via Playwright (click by DOM index) ──┐                      │   │   ║
+║   │   │      ▲                                            │                      │   │   ║
+║   │   │      └────────────────────────────────────────────┘ (3-8 turns)          │   │   ║
+║   │   └───────────────────────────────┬──────────────────────────────────────────┘   │   ║
+║   │                          [Done] ──▶ DONE (8-30K tokens total)                    │   ║
+║   │                          [Element not in list]                                    │   ║
+║   │                                   │                                              │   ║
+║   │   ┌───────────────────────────────▼──────────────────────────────────────────┐   │   ║
+║   │   │ LAYER 4: Vision (On-Demand / One-Shot)                                   │   │   ║
+║   │   │ ──▶ Capture Playwright screenshot                                        │   │   ║
+║   │   │ ──▶ Annotate with Set-of-Marks (numbered dashed boxes)                   │   │   ║
+║   │   │ ──▶ Send to VLM — one action — return to Layer 3 loop                    │   │   ║
+║   │   └──────────────────────────────────────────────────────────────────────────┘   │   ║
+║   │                                                                                  │   ║
+║   └──────────────────────────────────────────────────────────────────────────────────┘   ║
+║                                                                                          ║
+║   ┌──────────────────────────────────────────────────────────────────────────────────┐   ║
+║   │  INFRASTRUCTURE                                                                  │   ║
+║   │  Playwright + Stealth │ AWS Bedrock Claude │ Persistence (FS) │ JSONL Tracing    │   ║
+║   └──────────────────────────────────────────────────────────────────────────────────┘   ║
+╚══════════════════════════════════════════════════════════════════════════════════════════╝
+```
 
-| Layer | Method | When Used |
-|-------|--------|-----------|
-| **Extract** | Raw HTTP + trafilatura text extraction | Static pages with content accessible without JavaScript |
-| **Deterministic** | Playwright + hand-written CSS selectors | Sites with known, stable DOM structures |
-| **A11y** | DOM element list + LLM decides actions | Interactive pages requiring clicks, typing, filtering |
-| **Vision** | Screenshot sent to VLM on-demand | Visual-only controls (sliders, canvas, icon-only buttons) |
+<details>
+<summary><b>Mermaid Diagram</b> (click to expand — renders on GitHub)</summary>
 
-The A11y layer handles the majority of interactions. Vision is invoked only when the LLM explicitly requests a screenshot — typically for drag-based controls or pages where DOM elements are insufficient.
+```mermaid
+flowchart TB
+    subgraph ORCHESTRATOR["DAG Orchestrator (Session 8 skills + Browser)"]
+        Q[User Query] --> P[Planner LLM]
+        P --> DAG{{"NetworkX DAG"}}
+        DAG --> R[researcher]
+        DAG --> RET[retriever]
+        DAG --> B[browser - NEW]
+        DAG --> COD[coder]
+        DAG --> D[distiller]
+        DAG --> C[comparator]
+        DAG --> SC[screener / critic]
+        DAG --> F[formatter]
+    end
+
+    subgraph CASCADE["Browser Skill — Cost Cascade"]
+        direction TB
+        L1["Layer 1: Extract<br/>httpx + trafilatura<br/>~200 tokens"] -->|fail| L2
+        L2["Layer 2: Deterministic<br/>CSS selectors<br/>~0 tokens"] -->|fail| L3
+        L3["Layer 3: A11y Loop<br/>DOM elements + LLM<br/>8-30K tokens"]
+        L3 -.->|on-demand| L4["Layer 4: Vision<br/>Screenshot + VLM"]
+        L4 -.->|back to| L3
+    end
+
+    B --> L1
+
+    style ORCHESTRATOR fill:#1a1a2e,stroke:#16213e,color:#e0e0e0
+    style CASCADE fill:#0f3460,stroke:#16213e,color:#e0e0e0
+    style L1 fill:#2d6a4f,stroke:#40916c,color:#fff
+    style L2 fill:#2d6a4f,stroke:#40916c,color:#fff
+    style L3 fill:#1d3557,stroke:#457b9d,color:#fff
+    style L4 fill:#6a040f,stroke:#9d0208,color:#fff
+    style B fill:#e76f51,stroke:#f4a261,color:#fff
+```
+
+</details>
+
+---
+
+## What We Send to the LLM (Cost Control)
+
+A typical webpage has 500-2000 DOM nodes. Sending all of that would mean 15-20K tokens of noise per turn. Instead, the browser skill sends only what the LLM needs to make a decision:
+
+**Sent each turn:**
+- Numbered interactive elements only (40-130 items)
+- Prior actions (last 10) — so the LLM doesn't repeat itself
+- Page content text (after turn 2, max 4000 chars) — for extraction
+
+**Not sent:**
+- Raw HTML, CSS classes, style attributes
+- Non-interactive divs, spans, SVG internals
+- Hidden elements, duplicates, decorative wrappers
+
+**Example — what one LLM turn actually looks like:**
+
+```
+You are a browser automation agent.
+
+Goal: Find cheapest flights from Bangalore to Delhi next weekend on https://www.cleartrip.com
+
+Interactive elements (click by #number):
+  #1 link "Flights"
+  #2 link "Hotels"
+  #3 link "Trains"
+  #4 input "Where from?"
+  #5 input "Where to?"
+  #6 button "Search flights"
+  #7 link "Offers"
+  #8 slider "Price" (current=0) [use set_range with real target amount e.g. 35000]
+
+Prior actions (last 10):
+  Clicked #1: "Flights"
+
+Respond ONLY as a JSON object with "thought" and "actions":
+{"thought": "brief reason", "actions": [{"action": "click", "element": 4}, {"action": "type", "element": 4, "text": "BLR"}]}
+```
+
+**LLM responds:**
+```json
+{"thought": "Need to enter departure city", "actions": [{"action": "click", "element": 4}, {"action": "type", "element": 4, "text": "BLR"}]}
+```
+
+The LLM's job is narrow: given these clickable things, which one do I click next? Pick a number. No HTML parsing, no layout understanding — just a selection from a numbered menu.
+
+**Key difference from reference implementation:** The reference code never sends page content — the LLM navigates blind and guesses when to stop, then a separate distiller re-fetches the page for extraction. We inject 4000 chars of page text after turn 2. The LLM sees actual data (flight prices, paper titles, listing details), knows exactly when to stop, and extracts in the same pass. Costs ~1-2K extra tokens per turn but saves 2-3 unnecessary turns. The downstream nodes (comparator, formatter) still run for cross-site merging and structured output — but they work with already-extracted data, not raw pages.
 
 ---
 
 ## Element Detection
 
-Two-pass detection inspired by [browser-use](https://github.com/browser-use/browser-use):
+Two-pass approach (inspired by [browser-use](https://github.com/browser-use/browser-use)):
 
-**Pass 1** — Targeted selectors: standard HTML tags (`a`, `button`, `input`, `select`, `textarea`, `label`), ARIA roles (`gridcell`, `combobox`, `option`, `menuitem`), `tabindex`, `onclick`.
+**Pass 1 — Targeted selectors:** Standard HTML interactive tags + ARIA roles (`gridcell`, `combobox`, `option`, `menuitem`, `slider`, `tab`) + `tabindex` + `onclick`.
 
-**Pass 2** — Cursor:pointer scan: catches framework components (React, Vue, Angular) that use CSS pointer without semantic markup.
+**Pass 2 — Cursor:pointer scan:** Catches React/Vue/Angular components that use click handlers without semantic HTML. Skips SVG internals.
 
-**Name resolution** uses a 10-step fallback: `aria-label` → `aria-labelledby` → `innerText` → `value` → `placeholder` → `title` → `alt` → `data-tooltip` → `data-testid` → `name`.
+**Dedup (outermost-wins):** If a parent and child are both clickable with the same text, keep only the parent. Preserves: calendar cells (`role=gridcell`), form controls, sliders, elements with distinct text.
 
-**Dedup** uses outermost-wins: drops nested decorative wrappers while preserving calendar cells (`role=gridcell`), form controls, and elements with distinct text.
+**Name resolution (10-step fallback):** `aria-label` → `aria-labelledby` → `innerText` → `value` → `placeholder` → `title` → `alt` → `data-tooltip` → `data-testid` → `name`
 
 ---
 
-## Interaction Loop
+## The Interaction Loop
 
-Each turn of the unified interaction loop:
+Each turn of the Layer 3 loop:
 
 1. Dismiss overlays (cookie banners, login modals, popups)
 2. Detect Cloudflare challenges — wait for auto-resolution
-3. Extract all interactive DOM elements with bounding boxes
-4. Build element list and include page content (if available)
-5. Send to LLM — structured response: `{"thought": "...", "actions": [...]}`
-6. Execute actions via Playwright DOM locators
-7. Auto-select first autocomplete suggestion after typing (non-search fields)
+3. Extract interactive elements (two-pass detection)
+4. Build compact element list
+5. Send to Claude on Bedrock → structured JSON response: `{"thought": "...", "actions": [...]}`
+6. Execute actions via Playwright (click by DOM index, not coordinates)
+7. Auto-select first autocomplete suggestion (non-search fields)
 
-**Supported actions**: `click`, `type`, `press`, `scroll`, `drag`, `go_back`, `screenshot`, `done`
+**Actions:** `click`, `type`, `press`, `scroll`, `set_range`, `drag`, `go_back`, `done`
+
+**Slider handling:** `set_range` focuses the handle, presses Home to reset, then ArrowRight in batches — reading the displayed value after each batch until target reached. Works on any ARIA-compliant slider.
 
 ---
 
@@ -122,37 +253,40 @@ python dashboard_server.py
 
 ## Dashboard
 
-The live dashboard provides full observability into agent execution:
+Same dashboard from Session 8, extended with browser-specific tabs:
 
 | Tab | Description |
 |-----|-------------|
-| **Live Trace** | Real-time execution log — per-turn browser actions, thoughts, element clicks |
-| **Execution Graph** | Horizontal DAG visualization with clickable nodes |
+| **Live Trace** | Real-time execution log — per-turn actions, thoughts, element clicks |
+| **Execution Graph** | DAG visualization — same as Session 8, browser nodes highlighted |
 | **Answer** | Final rendered output (markdown tables, structured data) |
-| **Browser Replay** | Complete session report — goal, path chosen, actions, screenshots, extracted data, metrics |
-| **Browser I/O** | Full per-turn debugging — element list sent, LLM response, token usage |
+| **Browser Replay** | Session report — goal, path chosen, actions, screenshots, metrics |
+| **Browser I/O** | Per-turn debugging — element list sent, LLM response, tokens |
 | **Node I/O** | Orchestrator-level input/output per skill node |
-
-Sessions persist to disk and can be replayed by selecting from the session history.
 
 ---
 
-## Tested Sites
+## Demo Queries
 
-| Site | Interaction Type | Path |
-|------|-----------------|------|
-| Hacker News | Static content | Extract |
-| GitHub Trending | JS-rendered listing | A11y |
-| HuggingFace Models | Filter + sort dropdown | A11y |
-| Amazon India | Search + extract results | A11y |
-| Cleartrip Flights | Form fill + autocomplete + date picker + search | A11y |
-| Skyscanner | Form fill + date + search | A11y |
-| Google Scholar | Search + year filter + extract | A11y |
-| YouTube | Search + filter | A11y |
-| NoBroker | Search + BHK filter + extract | A11y |
-| npm | Search + extract | A11y |
-| 99acres | Search + multi-filter | A11y + Vision |
-| tldraw / Excalidraw | Canvas drawing (drag) | A11y |
+```
+Find the top 5 Show HN posts on https://news.ycombinator.com/shownew
+```
+
+```
+Find trending Python repositories this week on https://github.com/trending
+```
+
+```
+Find recent papers about browser agents published in 2025 on https://scholar.google.com
+```
+
+```
+Find cheapest flights from Bangalore to Delhi next weekend on https://www.cleartrip.com
+```
+
+```
+Find 2BHK flats for rent under 25000 in Koramangala on https://www.nobroker.in
+```
 
 ---
 
@@ -160,19 +294,19 @@ Sessions persist to disk and can be replayed by selecting from the session histo
 
 ```
 .
-├── browser/                 # Browser skill package
-│   ├── skill.py             # Cascade orchestrator + unified interaction loop
+├── browser/                 # NEW — Browser skill package
+│   ├── skill.py             # Cascade orchestrator + interaction loop
 │   ├── driver.py            # Playwright lifecycle, stealth, overlay dismissal
-│   ├── dom.py               # Element detection (a11y tree + clickable elements)
-│   ├── extract.py           # Layer 1: static extraction
-│   ├── highlight.py         # Set-of-marks annotation (dashed colored boxes)
+│   ├── dom.py               # Element detection (2-pass + dedup)
+│   ├── extract.py           # Layer 1: static extraction (httpx + trafilatura)
+│   ├── highlight.py         # Set-of-marks annotation for vision layer
 │   ├── precondition.py      # Gateway block detection
 │   └── selectors.py         # Layer 2: site-specific CSS selectors
-├── agent/                   # LLM gateway, memory, perception
+├── agent/                   # LLM gateway (from Session 8)
 │   ├── config.py            # Settings (profile, region)
-│   └── llm_gateway/         # Provider client with credential refresh
-├── prompts/                 # Skill prompt templates (14 skills)
-├── flow.py                  # DAG orchestrator (parallel execution, recovery)
+│   └── llm_gateway/         # Bedrock client with credential refresh
+├── prompts/                 # Skill prompt templates
+├── flow.py                  # DAG orchestrator (from Session 8, +browser dispatch)
 ├── skills.py                # Skill catalogue loader
 ├── schemas_v2.py            # Typed contracts (AgentResult, NodeSpec, RunBudget)
 ├── dashboard_server.py      # FastAPI + WebSocket server
@@ -182,80 +316,41 @@ Sessions persist to disk and can be replayed by selecting from the session histo
 ├── tracing.py               # Per-node span logging
 ├── mcp_server.py            # MCP tools (web_search, fetch_url, run_command)
 ├── mcp_runner.py            # Tool-use loop
-├── agent_config.yaml        # Skill definitions (14 skills)
-└── pyproject.toml           # Project metadata and dependencies
+├── agent_config.yaml        # 11 skills: researcher, retriever, distiller, summariser, critic, formatter, coder, comparator, screener, fact_checker, browser
+└── pyproject.toml           # Dependencies
 ```
 
 ---
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| Unified loop over strict cascade | Eliminates fragile escalation detection between a11y and vision |
-| Element-based execution | Clicks by DOM index (viewport-independent, no coordinate drift) |
-| Vision on-demand | LLM requests screenshots only when element list is insufficient |
-| Auto-click first suggestion | Saves a turn on autocomplete fields (airports, cities) |
-| Playwright-stealth | Reduces bot detection on Cloudflare-protected sites |
-| Structured LLM response | `{"thought", "actions"}` enables clean parsing and turn-by-turn debugging |
-| LLM validates Layer 1 | Prevents accepting garbage static extraction from JS-heavy pages |
-| Outermost-wins dedup | Removes nested decorative elements without breaking calendar cells |
-| Per-turn persistence | Browser I/O saved to JSONL for post-run debugging |
-
----
-
-## Demo Queries
-
-```
-Compare top 3 Hugging Face text-generation models sorted by likes on https://huggingface.co/models
-```
-
-```
-Find cheapest flights from Bangalore to Delhi next weekend on https://www.cleartrip.com
-```
-
-```
-Compare 3 laptops under Rs 80,000 on https://www.amazon.in
-```
-
-```
-Find recent papers about browser agents published in 2026 on https://scholar.google.com
-```
-
-```
-Find 2BHK flats for rent under 25000 in Koramangala on https://www.nobroker.in
-```
-
-```
-What are the trending Python repositories on GitHub this week?
-```
-
----
-
-## Execution Logs
-
-<!-- Session traces and Browser I/O outputs will be added here -->
-
----
-
-## Screenshots
-
-<!-- Dashboard screenshots will be added here -->
+| Decision | Why |
+|----------|-----|
+| Cascade over direct browser | Don't burn 25K tokens when a GET request works |
+| Element list over full HTML | 40-130 items vs 2000 DOM nodes — keeps each turn at 3-4K tokens |
+| Page content after turn 2 | LLM knows when to stop + extracts in same pass (no separate distiller) |
+| DOM index over coordinates | Viewport-independent clicks, no coordinate drift |
+| Auto-click suggestions | Saves a turn on every autocomplete field |
+| Keyboard for sliders | Only universal method — ARIA spec mandates arrow key support |
+| Playwright-stealth | Cloudflare/bot detection bypass without custom proxies |
+| Structured JSON response | Clean parsing, turn-by-turn debugging in Browser I/O |
+| Per-turn JSONL persistence | Full replay without re-running the query |
+| Scroll to content area | Moves mouse to 65% viewport width before wheel — prevents sidebar scroll |
 
 ---
 
 ## Known Limitations
 
-- **Cloudflare Turnstile**: Sites with "press and hold" verification (Product Hunt) block all automated browsers. Agent correctly reports `gateway_blocked`.
-- **Drag-based controls**: Price sliders require the LLM to request a screenshot first (vision escalation). Works but adds latency.
-- **Non-determinism**: Temperature 0 does not guarantee identical outputs across different prompt contexts. Complex forms may require 1-2 retries.
-- **npm sort**: Sorting on npm triggers a URL change that drops the search query (site behavior, not agent bug). Agent extracts from unsorted results.
+- **Cloudflare Turnstile**: "Press and hold" verification blocks all automated browsers. Agent reports `gateway_blocked`.
+- **Non-linear sliders**: Incremental keyboard approach works but takes 5-10 seconds for calibration.
+- **Non-determinism**: Temperature 0 doesn't guarantee identical outputs. Complex forms may need 1-2 retries.
+- **Heavy SPAs**: Pages with 200+ interactive elements slow down element detection (~2s).
 
 ---
 
 ## References
 
-- [browser-use](https://github.com/browser-use/browser-use) — Element detection and interaction patterns
-- [Playwright](https://playwright.dev/python/) — Browser automation framework
-- [Set-of-Marks (Yang et al. 2023)](https://arxiv.org/abs/2310.11441) — Visual element annotation for VLMs
+- [browser-use](https://github.com/browser-use/browser-use) — Element detection patterns
+- [Playwright](https://playwright.dev/python/) — Browser automation
+- [Set-of-Marks (Yang et al. 2023)](https://arxiv.org/abs/2310.11441) — Visual element annotation
 - [Playwright Stealth](https://pypi.org/project/playwright-stealth/) — Anti-detection patches

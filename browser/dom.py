@@ -102,7 +102,7 @@ async def get_clickable_elements(page: Page) -> list[dict]:
             'a', 'button', 'input', 'select', 'textarea', 'label',
             '[role=button]', '[role=link]', '[role=menuitem]', '[role=tab]',
             '[role=option]', '[role=gridcell]', '[role=combobox]', '[role=searchbox]',
-            '[role=switch]', '[role=treeitem]', '[tabindex]', '[onclick]',
+            '[role=switch]', '[role=slider]', '[role=treeitem]', '[tabindex]', '[onclick]',
         ];
         const selectors = sels.join(', ');
         for (const el of document.querySelectorAll(selectors)) {
@@ -132,7 +132,7 @@ async def get_clickable_elements(page: Page) -> list[dict]:
         // Drop any candidate whose ancestor is also a candidate,
         // UNLESS the candidate has role=gridcell/option or is inside a
         // grid/listbox (calendar cells, date pickers, select options).
-        const KEEP_NESTED_ROLES = new Set(['gridcell', 'option', 'row', 'cell']);
+        const KEEP_NESTED_ROLES = new Set(['gridcell', 'option', 'row', 'cell', 'slider']);
         const KEEP_NESTED_TAGS = new Set(['input', 'select', 'textarea', 'button']);
         const outermost = [];
         for (const el of candidates) {
@@ -198,12 +198,19 @@ async def get_clickable_elements(page: Page) -> list[dict]:
             if (!text || text.length < 2) text = el.getAttribute('name') || '';
             text = (text || '').trim().replace(/\\s+/g, ' ').slice(0, 80);
             if (results.length >= 150) break;
-            results.push({
+            const role = el.getAttribute('role') || el.tagName.toLowerCase();
+            const entry = {
                 tag: el.tagName.toLowerCase(),
                 text: text,
-                role: el.getAttribute('role') || el.tagName.toLowerCase(),
+                role: role,
                 bbox: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
-            });
+            };
+            if (role === 'slider' || el.type === 'range') {
+                entry.valuemax = el.getAttribute('aria-valuemax') || el.max || '';
+                entry.valuemin = el.getAttribute('aria-valuemin') || el.min || '';
+                entry.valuenow = el.getAttribute('aria-valuenow') || el.value || '';
+            }
+            results.push(entry);
         }
 
         return results;
