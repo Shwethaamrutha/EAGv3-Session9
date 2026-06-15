@@ -22,30 +22,30 @@ The orchestrator handles everything else: NetworkX DAG construction, parallel ex
 
 ```
 ╔══════════════════════════════════════════════════════════════════════════════════════════╗
-║                                    AXON SYSTEM                                          ║
+║                                    AXON SYSTEM                                           ║
 ╠══════════════════════════════════════════════════════════════════════════════════════════╣
 ║                                                                                          ║
-║   ┌─────────────┐         ┌────────────────────────────────────────────────────────┐    ║
-║   │  Dashboard  │◄━━━━━━━━┤  WebSocket Event Stream (actions, tokens, screenshots) │    ║
-║   │  :8080      │         └───────────────────────────┬────────────────────────────┘    ║
+║   ┌─────────────┐         ┌────────────────────────────────────────────────────────┐     ║
+║   │  Dashboard  │◄━━━━━━━━┤  WebSocket Event Stream (actions, tokens, screenshots) │     ║
+║   │  :8080      │         └───────────────────────────┬────────────────────────────┘     ║
 ║   └─────────────┘                                     │                                  ║
 ║                                                       │ on_event()                       ║
-║   ┌─────────────────────────────────────────────────────────────────────────────────┐   ║
-║   │                           DAG ORCHESTRATOR (flow.py)                             │   ║
-║   │                                                                                  │   ║
-║   │    User Query ──▶ ┌─────────┐ ──▶ NetworkX DAG ──▶ Parallel Executor            │   ║
-║   │                   │ PLANNER │     (typed edges)     (asyncio.gather)             │   ║
-║   │                   └─────────┘                                                    │   ║
-║   │                        │                                                         │   ║
-║   │    ┌──────────┬──────────┬───┼───┬──────────┬───────────┬──────────┐              │   ║
-║   │    ▼          ▼          ▼   ▼   ▼          ▼           ▼          ▼              │   ║
-║   │ ┌────────┐┌─────────┐┌──────┐┌──────┐┌─────────┐┌──────────┐┌─────────┐        │   ║
-║   │ │research││retriever ││browser││coder ││distiller││comparator││formatter│        │   ║
-║   │ │ (MCP)  ││(vectors) ││(NEW) ││(exec)││(reduce) ││ (merge)  ││(output) │        │   ║
-║   │ └────────┘└─────────┘└───┬───┘└──────┘└─────────┘└──────────┘└─────────┘        │   ║
-║   │                           │    + summariser, critic, screener, fact_checker       │   ║
-║   │                           │                                                      │   ║
-║   └───────────────────────────┼──────────────────────────────────────────────────────┘   ║
+║   ┌─────────────────────────────────────────────────────────────────────────────────┐    ║
+║   │                           DAG ORCHESTRATOR (flow.py)                            │    ║
+║   │                                                                                 │    ║
+║   │    User Query ──▶ ┌─────────┐ ──▶ NetworkX DAG ──▶ Parallel Executor            │    ║
+║   │                   │ PLANNER │     (typed edges)     (asyncio.gather)            │    ║
+║   │                   └─────────┘                                                   │    ║
+║   │                        │                                                        │    ║
+║   │    ┌──────────┬──────────┬───┼───┬──────────┬───────────┬──────────┐            │    ║
+║   │    ▼          ▼          ▼       ▼          ▼           ▼          ▼            │    ║
+║   │ ┌────────┐┌─────────┐┌───────┐┌──────┐┌─────────┐┌──────────┐┌─────────┐        │    ║
+║   │ │research││critic   ││browser││coder ││distiller││comparator││formatter│        │    ║
+║   │ │ (MCP)  ││         ││(NEW)  ││(exec)││(reduce) ││ (merge)  ││(output) │        │    ║
+║   │ └────────┘└─────────┘└───┬───┘└──────┘└─────────┘└──────────┘└─────────┘        │    ║
+║   │                           │    + summariser, critic, fact_checker               │    ║
+║   │                           │                                                     │    ║
+║   └───────────────────────────┼─────────────────────────────────────────────────────┘    ║
 ║                               │                                                          ║
 ║   ┌───────────────────────────▼──────────────────────────────────────────────────────┐   ║
 ║   │                     BROWSER SKILL — 4-LAYER CASCADE                              │   ║
@@ -70,14 +70,14 @@ The orchestrator handles everything else: NetworkX DAG construction, parallel ex
 ║   │   │ LAYER 3: A11y Interaction Loop (The Workhorse)                           │   │   ║
 ║   │   │ ──▶ Playwright + 2-Pass Element Scan (ARIA roles + cursor:pointer)       │   │   ║
 ║   │   │ ──▶ Outermost-wins dedup (preserves gridcell, slider, form controls)     │   │   ║
-║   │   │ ──▶ Compact numbered list (40-130 items) sent to Claude on Bedrock       │   │   ║
+║   │   │ ──▶ Compact numbered list (40-130 items) sent to LLM                     │   │   ║
 ║   │   │ ──▶ Claude returns structured JSON {"thought", "actions"}                │   │   ║
 ║   │   │ ──▶ Execute via Playwright (click by DOM index) ──┐                      │   │   ║
 ║   │   │      ▲                                            │                      │   │   ║
 ║   │   │      └────────────────────────────────────────────┘ (3-8 turns)          │   │   ║
 ║   │   └───────────────────────────────┬──────────────────────────────────────────┘   │   ║
 ║   │                          [Done] ──▶ DONE (8-30K tokens total)                    │   ║
-║   │                          [Element not in list]                                    │   ║
+║   │                          [Element not in list]                                   │   ║
 ║   │                                   │                                              │   ║
 ║   │   ┌───────────────────────────────▼──────────────────────────────────────────┐   │   ║
 ║   │   │ LAYER 4: Vision (On-Demand / One-Shot)                                   │   │   ║
@@ -90,7 +90,7 @@ The orchestrator handles everything else: NetworkX DAG construction, parallel ex
 ║                                                                                          ║
 ║   ┌──────────────────────────────────────────────────────────────────────────────────┐   ║
 ║   │  INFRASTRUCTURE                                                                  │   ║
-║   │  Playwright + Stealth │ AWS Bedrock Claude │ Persistence (FS) │ JSONL Tracing    │   ║
+║   │  Playwright + Stealth │ LLM Gateway │ Persistence (FS) │ JSONL Tracing           │   ║
 ║   └──────────────────────────────────────────────────────────────────────────────────┘   ║
 ╚══════════════════════════════════════════════════════════════════════════════════════════╝
 ```
@@ -208,7 +208,7 @@ Each turn of the Layer 3 loop:
 2. Detect Cloudflare challenges — wait for auto-resolution
 3. Extract interactive elements (two-pass detection)
 4. Build compact element list
-5. Send to Claude on Bedrock → structured JSON response: `{"thought": "...", "actions": [...]}`
+5. Send to LLM → structured JSON response: `{"thought": "...", "actions": [...]}`
 6. Execute actions via Playwright (click by DOM index, not coordinates)
 7. Auto-select first autocomplete suggestion (non-search fields)
 
@@ -269,15 +269,15 @@ Same dashboard from Session 8, extended with browser-specific tabs:
 ## Demo Queries
 
 ```
-Find the top 5 Show HN posts on https://news.ycombinator.com/shownew
+Find the top 5 storied on https://news.ycombinator.com/
 ```
 
 ```
-Find trending Python repositories this week on https://github.com/trending
+Find trending Python repositories this week on https://github.com/
 ```
 
 ```
-Find recent papers about browser agents published in 2025 on https://scholar.google.com
+Find recent papers about browser agents published in 2026 on https://scholar.google.com
 ```
 
 ```
@@ -285,7 +285,7 @@ Find cheapest flights from Bangalore to Delhi next weekend on https://www.cleart
 ```
 
 ```
-Find 2BHK flats for rent under 25000 in Koramangala on https://www.nobroker.in
+Find 2BHK flats for rent under 35000 in Koramangala on https://www.nobroker.in
 ```
 
 ---
@@ -304,7 +304,7 @@ Find 2BHK flats for rent under 25000 in Koramangala on https://www.nobroker.in
 │   └── selectors.py         # Layer 2: site-specific CSS selectors
 ├── agent/                   # LLM gateway (from Session 8)
 │   ├── config.py            # Settings (profile, region)
-│   └── llm_gateway/         # Bedrock client with credential refresh
+│   └── llm_gateway/         # LLM gateway for accessing multiple providers
 ├── prompts/                 # Skill prompt templates
 ├── flow.py                  # DAG orchestrator (from Session 8, +browser dispatch)
 ├── skills.py                # Skill catalogue loader
