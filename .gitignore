@@ -1,0 +1,13 @@
+state/memory.json
+state/index.faiss
+state/index_ids.json
+state/memory.json.lock
+state/artifacts/
+state/sandbox/research/
+state/sessions/
+__pycache__/
+*.pyc
+.env
+uv.lock
+
+.DS_Store

@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ΛXÖN — DAG Orchestrator</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%234f46e5'/><path d='M8 20 L16 6 L16 14 L24 12 L16 26 L16 18 Z' fill='white'/></svg>">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+.report-section { margin-bottom: 16px; border: 1px solid #1e293b; border-radius: 6px; overflow: hidden; }
+.report-header { background: #161b22; padding: 8px 14px; color: #79c0ff; font-weight: 600; font-size: 13px; border-bottom: 1px solid #1e293b; }
+.report-body { padding: 10px 14px; font-size: 12px; color: #94a3b8; }
+.report-action { padding: 5px 10px; margin: 3px 0; background: #0d1117; border-left: 3px solid #58a6ff; border-radius: 3px; }
+.report-action .turn { color: #58a6ff; font-weight: 600; }
+.report-action .act-type { color: #f0883e; }
+.report-action .act-target { color: #7ee787; }
+.report-action .act-error { color: #f85149; }
+.report-path-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin: 2px 4px; }
+.report-path-badge.extract { background: #1a3a2a; color: #4ade80; }
+.report-path-badge.a11y { background: #1a2a3a; color: #58a6ff; }
+.report-path-badge.vision { background: #3a2a1a; color: #f0883e; }
+.report-path-badge.deterministic { background: #2a2a3a; color: #a78bfa; }
+.report-path-badge.blocked { background: #3a1a1a; color: #f85149; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #080a10; }
+::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #334155; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: #050508;
+  color: #e2e8f0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto 1fr;
+  height: 100vh;
+  background: #0a0d14;
+}
+
+.header {
+  background: #080a10;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid #141a2a;
+}
+.header h1 { font-size: 18px; color: #a5b4fc; font-weight: 700; letter-spacing: 1px; white-space: nowrap; }
+.header .subtitle { font-size: 11px; color: #475569; white-space: nowrap; }
+.header .query-bar { flex: 1; display: flex; align-items: center; gap: 8px; }
+.header .query-bar input {
+  flex: 1; background: #0d1117; border: 1px solid #1a2030;
+  border-radius: 6px; padding: 8px 14px; color: #e2e8f0;
+  font-size: 13px; outline: none; font-family: inherit;
+}
+.header .query-bar input:focus { border-color: #4f46e5; }
+.header .query-bar button {
+  background: #4f46e5; border: none; border-radius: 6px;
+  padding: 8px 16px; color: white; font-weight: 600; font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.header .query-bar button:hover { background: #4338ca; }
+.header .query-bar button:disabled { opacity: 0.4; cursor: not-allowed; }
+.header .query-bar .btn-secondary { background: #1e293b; color: #94a3b8; }
+.header .query-bar .btn-secondary:hover { background: #334155; }
+.header .stats { display: flex; gap: 16px; font-size: 11px; color: #64748b; white-space: nowrap; }
+.header .stat-val { color: #38bdf8; font-weight: 600; }
+.toggle-panel { cursor: pointer; padding: 3px 8px; border-radius: 4px; border: 1px solid #1e293b; color: #64748b; font-size: 11px; }
+.toggle-panel:hover { border-color: #4f46e5; color: #a5b4fc; }
+
+/* DAG SVG area */
+#tab-dag { padding: 12px; overflow: auto; }
+#dag-svg { min-height: 200px; flex-shrink: 0; }
+.dag-node-rect { rx: 8; ry: 8; stroke-width: 2; cursor: default; transition: all 0.3s; }
+.dag-node-rect.pending { fill: #0d1117; stroke: #1a2030; }
+.dag-node-rect.running { fill: #0d1117; stroke: #4f46e5; filter: drop-shadow(0 0 6px rgba(79,70,229,0.5)); }
+.dag-node-rect.complete { fill: #0a1a14; stroke: #10b981; }
+.dag-node-rect.failed { fill: #1a0a0a; stroke: #ef4444; }
+.dag-node-rect.skipped { fill: #0d1117; stroke: #334155; opacity: 0.5; }
+.dag-node-id { font-size: 9px; fill: #475569; font-weight: 700; }
+.dag-node-skill { font-size: 11px; fill: #e2e8f0; font-weight: 500; }
+.dag-node-time { font-size: 9px; fill: #64748b; }
+.dag-edge { stroke: #1e293b; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+.dag-edge.active { stroke: #4f46e5; }
+.dag-edge.done { stroke: #10b981; }
+
+/* Center panel — now full width */
+.center-panel { background: #080a10; display: flex; flex-direction: column; overflow: hidden; }
+.tabs { display: flex; border-bottom: 1px solid #141a2a; padding: 0 24px; background: #080a10; }
+.tab { padding: 10px 20px; font-size: 12px; color: #64748b; cursor: pointer; border-bottom: 2px solid transparent; }
+.tab.active { color: #a5b4fc; border-bottom-color: #4f46e5; }
+.tab-content { flex: 1; overflow: auto; padding: 20px 24px; display: none; width: 100%; background: #080a10; }
+.tab-content.visible { display: block; }
+
+/* Logs */
+.node-group {
+  background: #0d1117;
+  border: 1px solid #1a2030;
+  border-radius: 8px;
+  margin: 8px 0;
+  overflow: hidden;
+  animation: slideIn 0.3s ease;
+}
+.node-group-header {
+  padding: 8px 14px;
+  background: #080a10;
+  font-size: 13px;
+  font-weight: 600;
+  color: #38bdf8;
+  border-bottom: 1px solid #1a2030;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.node-group-header .node-status { font-size: 11px; font-weight: 500; }
+.node-group-header .node-status.complete { color: #10b981; }
+.node-group-header .node-status.running { color: #a78bfa; }
+.node-group-header .node-status.failed { color: #ef4444; }
+.node-group-header .node-status.pending { color: #475569; }
+.node-group-body { padding: 6px 12px; }
+.log-entry {
+  font-family: 'SF Mono', 'JetBrains Mono', monospace;
+  font-size: 14px; padding: 6px 10px; margin: 2px 0; border-radius: 4px;
+  display: grid; grid-template-columns: 50px 90px 1fr; gap: 10px; line-height: 1.6;
+}
+.log-entry:hover { background: #141a2a; }
+.log-time { color: #475569; font-size: 12px; }
+.log-tag { font-weight: 600; font-size: 13px; }
+.log-msg { color: #cbd5e1; white-space: pre-wrap; word-break: break-word; }
+.tag-memory { color: #38bdf8; }
+.tag-perception { color: #a78bfa; }
+.tag-decision { color: #f59e0b; }
+.tag-action { color: #4ade80; }
+.tag-system { color: #64748b; }
+.parallel-banner {
+  padding: 8px 14px; margin: 8px 0; font-size: 12px; color: #a78bfa;
+  background: #0f0a1f; border: 1px solid #2d1f5e; border-radius: 8px;
+}
+.parallel-banner-header {
+  font-weight: 600; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #2d1f5e;
+}
+.parallel-banner-body {
+  display: flex; flex-direction: column; gap: 6px; padding-left: 4px;
+}
+
+/* Answer — proper markdown */
+#answer-output { font-size: 14px; line-height: 1.7; color: #cbd5e1; }
+#answer-output h1 { font-size: 22px; color: #a5b4fc; margin: 20px 0 10px; font-weight: 700; }
+#answer-output h2 { font-size: 18px; color: #a5b4fc; margin: 16px 0 8px; font-weight: 600; }
+#answer-output h3 { font-size: 15px; color: #c4b5fd; margin: 14px 0 6px; font-weight: 600; }
+#answer-output p { margin: 8px 0; }
+#answer-output strong { color: #f1f5f9; }
+#answer-output ul, #answer-output ol { padding-left: 24px; margin: 8px 0; }
+#answer-output li { margin: 5px 0; }
+#answer-output hr { border: none; border-top: 1px solid #1e293b; margin: 16px 0; }
+#answer-output table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+#answer-output th { background: #0f172a; color: #a5b4fc; padding: 8px 12px; text-align: left; border: 1px solid #1e293b; font-weight: 600; }
+#answer-output td { padding: 8px 12px; border: 1px solid #1e293b; color: #e2e8f0; }
+#answer-output tr:nth-child(even) td { background: #0a0f1a; }
+#answer-output code { background: #1e293b; padding: 2px 6px; border-radius: 3px; font-size: 12px; font-family: 'SF Mono', monospace; color: #e2e8f0; }
+#answer-output a { color: #64748b; text-decoration: none; border-bottom: 1px solid #334155; }
+#answer-output a:hover { color: #94a3b8; }
+#answer-output pre { background: #0d1117; padding: 14px; border-radius: 8px; overflow-x: auto; margin: 10px 0; border: 1px solid #1e293b; }
+#answer-output pre code { background: none; padding: 0; }
+#answer-output blockquote { border-left: 3px solid #4f46e5; padding-left: 14px; color: #94a3b8; margin: 10px 0; }
+
+/* Right panel — now a slide-out overlay */
+.right-panel {
+  position: fixed; top: 0; right: 0; width: 320px; height: 100vh;
+  background: #080a10; border-left: 1px solid #141a2a;
+  display: flex; flex-direction: column; overflow-y: auto;
+  transform: translateX(100%); transition: transform 0.3s ease;
+  z-index: 100;
+}
+.right-panel.open { transform: translateX(0); }
+.metrics-section { padding: 14px 16px; border-bottom: 1px solid #141a2a; }
+.metrics-section h3 { font-size: 10px; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.metric-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; }
+.metric-label { color: #64748b; }
+.metric-value { color: #38bdf8; font-weight: 600; font-family: 'SF Mono', monospace; font-size: 11px; }
+.metric-value.green { color: #10b981; }
+.metric-value.amber { color: #f59e0b; }
+
+.skill-bar { margin: 5px 0; }
+.skill-bar-label { font-size: 10px; color: #94a3b8; display: flex; justify-content: space-between; margin-bottom: 2px; }
+.skill-bar-track { height: 5px; background: #1a2030; border-radius: 3px; overflow: hidden; }
+.skill-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+
+.sessions-list { padding: 8px 12px; }
+.session-item {
+  padding: 8px 10px; border-radius: 6px; margin-bottom: 4px; font-size: 11px;
+  cursor: pointer; background: #0d1117; border: 1px solid #1a2030;
+}
+.session-item:hover { border-color: #4f46e5; }
+.session-item .sid { color: #a5b4fc; font-weight: 600; }
+.session-item .qp { color: #64748b; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+@keyframes nodeGlow { 0%,100%{filter:drop-shadow(0 0 4px rgba(79,70,229,0.3))} 50%{filter:drop-shadow(0 0 12px rgba(79,70,229,0.7))} }
+.dag-node-rect.running { animation: nodeGlow 1.5s infinite; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="header">
+    <h1>ΛXÖN</h1>
+    <span class="subtitle">Session 9</span>
+    <div class="query-bar">
+      <input id="query-input" type="text" placeholder="Enter your query..." onkeydown="if(event.key==='Enter')runQuery()">
+      <button id="run-btn" onclick="runQuery()">Run</button>
+      <button id="stop-btn" class="btn-secondary" onclick="stopQuery()" style="display:none;background:#7f1d1d;color:#fca5a5;">Stop</button>
+      <button id="resume-btn" class="btn-secondary" onclick="resumeQuery()" style="display:none;background:#1e3a2e;color:#6ee7b7;">Resume</button>
+      <button id="back-to-live-btn" class="btn-secondary" onclick="backToLive()" style="display:none;background:#1e293b;color:#58a6ff;">Back to Live</button>
+      <button class="btn-secondary" onclick="clearState()">Clear</button>
+    </div>
+    <div class="stats">
+      <span>Nodes: <span class="stat-val" id="stat-nodes">0</span></span>
+      <span>Time: <span class="stat-val" id="stat-time">0.0s</span></span>
+      <span>Tokens: <span class="stat-val" id="stat-tokens">0</span></span>
+      <span>Status: <span class="stat-val" id="stat-status">idle</span></span>
+      <span class="toggle-panel" onclick="toggleRightPanel()">Metrics</span>
+    </div>
+  </div>
+
+  <div class="center-panel">
+    <div class="tabs">
+      <div class="tab active" data-tab="logs" onclick="switchTab('logs')">Live Trace</div>
+      <div class="tab" data-tab="dag" onclick="switchTab('dag')">Execution Graph</div>
+      <div class="tab" data-tab="answer" onclick="switchTab('answer')">Answer</div>
+      <div class="tab" data-tab="browser" onclick="switchTab('browser')">Browser Replay</div>
+      <div class="tab" data-tab="browserio" onclick="switchTab('browserio')">Browser I/O</div>
+      <div class="tab" data-tab="debug" onclick="switchTab('debug')">Node I/O</div>
+    </div>
+    <div class="tab-content visible" id="tab-logs"></div>
+    <div class="tab-content" id="tab-dag">
+      <div style="padding:8px;overflow:auto;display:flex;flex-direction:column;align-items:center;background:#080a10;">
+        <svg id="dag-svg" xmlns="http://www.w3.org/2000/svg" style="min-height:250px;">
+          <defs>
+            <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#475569"/>
+            </marker>
+            <marker id="arrowhead-active" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#4f46e5"/>
+            </marker>
+            <marker id="arrowhead-done" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#10b981"/>
+            </marker>
+          </defs>
+        </svg>
+        <div id="dag-node-detail" style="font-family:'SF Mono',monospace;font-size:12px;width:100%;"></div>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-answer"><div id="answer-output"></div></div>
+    <div class="tab-content" id="tab-browser">
+      <div id="browser-replay" style="padding:16px;font-family:'SF Mono',monospace;font-size:13px;overflow-y:auto;max-height:calc(100vh - 120px);">
+
+        <div class="report-section" id="rpt-goal">
+          <div class="report-header">1. Original User Goal</div>
+          <div class="report-body" id="rpt-goal-body" style="color:#e2e8f0;">Waiting for query...</div>
+        </div>
+
+        <div class="report-section" id="rpt-dag">
+          <div class="report-header">2. Planner DAG</div>
+          <div class="report-body" id="rpt-dag-body"></div>
+        </div>
+
+        <div class="report-section" id="rpt-path">
+          <div class="report-header">3. Browser Path Chosen</div>
+          <div class="report-body" id="rpt-path-body" style="color:#58a6ff;">—</div>
+        </div>
+
+        <div class="report-section" id="rpt-actions">
+          <div class="report-header">4. Browser Actions Taken</div>
+          <div class="report-body" id="rpt-actions-body"></div>
+        </div>
+
+        <div class="report-section" id="rpt-screenshots">
+          <div class="report-header">5. Screenshots</div>
+          <div class="report-body" id="rpt-screenshots-body" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+        </div>
+
+        <div class="report-section" id="rpt-data">
+          <div class="report-header">6. Extracted Data</div>
+          <div class="report-body" id="rpt-data-body" style="white-space:pre-wrap;max-height:300px;overflow-y:auto;"></div>
+        </div>
+
+        <div class="report-section" id="rpt-table">
+          <div class="report-header">7. Final Comparison Table</div>
+          <div class="report-body" id="rpt-table-body"></div>
+        </div>
+
+        <div class="report-section" id="rpt-cost">
+          <div class="report-header">8. Turn Count & Cost Summary</div>
+          <div class="report-body" id="rpt-cost-body"></div>
+        </div>
+
+      </div>
+    </div>
+    <div class="tab-content" id="tab-browserio">
+      <div id="browser-io-output" style="font-family:'SF Mono',monospace;font-size:12px;color:#94a3b8;"></div>
+    </div>
+    <div class="tab-content" id="tab-debug"><div id="debug-output" style="font-family:'SF Mono',monospace;font-size:12px;color:#94a3b8;"></div></div>
+  </div>
+
+  <div class="right-panel">
+    <div style="padding:10px 16px;border-bottom:1px solid #141a2a;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:12px;color:#a5b4fc;font-weight:600;">Metrics</span>
+      <span onclick="closeRightPanel()" style="cursor:pointer;color:#64748b;font-size:16px;padding:2px 6px;border-radius:4px;border:1px solid #1e293b;">x</span>
+    </div>
+    <div class="metrics-section">
+      <h3>Run Metrics</h3>
+      <div class="metric-row"><span class="metric-label">Total nodes</span><span class="metric-value" id="m-nodes">—</span></div>
+      <div class="metric-row"><span class="metric-label">Wall-clock</span><span class="metric-value" id="m-wallclock">—</span></div>
+      <div class="metric-row"><span class="metric-label">Serial cost</span><span class="metric-value" id="m-serial">—</span></div>
+      <div class="metric-row"><span class="metric-label">Speedup</span><span class="metric-value green" id="m-speedup">—</span></div>
+      <div class="metric-row"><span class="metric-label">Tokens (in/out)</span><span class="metric-value" id="m-tokens">—</span></div>
+      <div class="metric-row"><span class="metric-label">Cache hits</span><span class="metric-value green" id="m-cache">—</span></div>
+      <div class="metric-row"><span class="metric-label">Recoveries</span><span class="metric-value amber" id="m-recoveries">—</span></div>
+    </div>
+    <div class="metrics-section">
+      <h3>Per-Skill Latency</h3>
+      <div id="skill-breakdown"></div>
+    </div>
+    <div class="metrics-section">
+      <h3>Sessions</h3>
+      <div id="sessions-list" class="sessions-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let ws = null, runStart = 0, timerInterval = null;
+let dagData = { nodes: [], edges: [] };
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.toggle('visible', t.id === 'tab-' + name));
+}
+
+function startNodeGroup(nodeId, skill, question) {
+  const existingId = `group-${nodeId.replace(':','-')}`;
+  const existing = document.getElementById(existingId);
+  if (existing) {
+    // Group already exists (e.g. from session load) — reuse it, reset status
+    const statusEl = existing.querySelector('.node-status');
+    if (statusEl) { statusEl.className = 'node-status running'; statusEl.textContent = 'running...'; }
+    existing.querySelector('.node-group-body').innerHTML = '';
+    return;
+  }
+
+  const logs = document.getElementById('tab-logs');
+  const group = document.createElement('div');
+  group.className = 'node-group';
+  group.id = existingId;
+  const title = question ? `${skill} — ${question.substring(0, 60)}` : skill;
+  group.innerHTML = `<div class="node-group-header"><span>Node ${esc(nodeId)} &nbsp;│&nbsp; ${esc(title)}</span><span class="node-status running">running...</span></div><div class="node-group-body"></div>`;
+
+  if (parallelContainer) {
+    parallelContainer.appendChild(group);
+  } else {
+    logs.appendChild(group);
+  }
+  logs.scrollTop = logs.scrollHeight;
+}
+
+function endNodeGroup(nodeId, status, elapsed) {
+  const group = document.getElementById(`group-${nodeId.replace(':','-')}`);
+  if (group) {
+    const statusEl = group.querySelector('.node-status');
+    if (statusEl) {
+      statusEl.className = `node-status ${status}`;
+      if (status === 'complete') statusEl.textContent = `✓ ${elapsed.toFixed(1)}s`;
+      else if (status === 'pending') statusEl.textContent = 'pending';
+      else statusEl.textContent = status;
+    }
+  }
+}
+
+function addLogToNode(nodeId, role, msg) {
+  const elapsed = ((Date.now() - runStart) / 1000).toFixed(1);
+  const cls = 'tag-' + role.toLowerCase().replace(/[^a-z]/g, '');
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="log-time">${elapsed}s</span><span class="log-tag ${cls}">[${esc(role)}]</span><span class="log-msg">${esc(msg)}</span>`;
+
+  const group = document.getElementById(`group-${nodeId.replace(':','-')}`);
+  if (group) {
+    group.querySelector('.node-group-body').appendChild(el);
+  } else {
+    document.getElementById('tab-logs').appendChild(el);
+  }
+  document.getElementById('tab-logs').scrollTop = 99999;
+}
+
+function addLog(role, msg) {
+  const elapsed = ((Date.now() - runStart) / 1000).toFixed(1);
+  const cls = 'tag-' + role.toLowerCase().replace(/[^a-z]/g, '');
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="log-time">${elapsed}s</span><span class="log-tag ${cls}">[${esc(role)}]</span><span class="log-msg">${esc(msg)}</span>`;
+  document.getElementById('tab-logs').appendChild(el);
+  document.getElementById('tab-logs').scrollTop = 99999;
+}
+
+let parallelContainer = null;
+
+function addParallelBanner(count) {
+  const logs = document.getElementById('tab-logs');
+  const el = document.createElement('div');
+  el.className = 'parallel-banner';
+  el.id = 'parallel-group-' + Date.now();
+  el.innerHTML = `<div class="parallel-banner-header">Parallel fan-out: ${count} nodes executing concurrently</div><div class="parallel-banner-body"></div>`;
+  logs.appendChild(el);
+  logs.scrollTop = logs.scrollHeight;
+  parallelContainer = el.querySelector('.parallel-banner-body');
+}
+
+// ─── SVG DAG Renderer ───
+function renderDAG(nodes, edges) {
+  const svg = document.getElementById('dag-svg');
+  const container = svg.parentElement;
+  const availW = container.clientWidth - 40 || 800;
+  const layers0 = {}; nodes.forEach(n=>{const la=n.layer||0;if(!layers0[la])layers0[la]=[];layers0[la].push(n);});
+  // Horizontal layout: layers go left-to-right, nodes in each layer stack vertically
+  const NODE_W = 180, NODE_H = 56, PAD_X = 50, PAD_Y = 16;
+
+  const layers = {};
+  nodes.forEach(n => {
+    const l = n.layer || 0;
+    if (!layers[l]) layers[l] = [];
+    layers[l].push(n);
+  });
+  const sortedLayers = Object.keys(layers).sort((a,b) => a - b);
+  const maxPerLayer = Math.max(...Object.values(layers).map(l => l.length), 1);
+
+  const totalW = Math.max((sortedLayers.length * (NODE_W + PAD_X)) + PAD_X, 400);
+  const totalH = Math.max((maxPerLayer * (NODE_H + PAD_Y)) + PAD_Y * 2, 200);
+  svg.setAttribute('viewBox', `0 0 ${totalW} ${totalH}`);
+  svg.style.width = '100%';
+  svg.style.height = Math.min(totalH, 400) + 'px';
+
+  const positions = {};
+  sortedLayers.forEach((layerIdx, li) => {
+    const col = layers[layerIdx];
+    const colH = col.length * (NODE_H + PAD_Y) - PAD_Y;
+    const startY = (totalH - colH) / 2;
+    col.forEach((n, ni) => {
+      positions[n.id] = {
+        x: PAD_X + li * (NODE_W + PAD_X),
+        y: startY + ni * (NODE_H + PAD_Y),
+      };
+    });
+  });
+
+  let html = '';
+  // Edges: horizontal curves (left-to-right)
+  (edges || []).forEach(e => {
+    const from = positions[e.from];
+    const to = positions[e.to];
+    if (!from || !to) return;
+    const x1 = from.x + NODE_W, y1 = from.y + NODE_H / 2;
+    const x2 = to.x, y2 = to.y + NODE_H / 2;
+    const midX = (x1 + x2) / 2;
+    const fromNode = nodes.find(n => n.id === e.from);
+    const toNode = nodes.find(n => n.id === e.to);
+    let cls = 'dag-edge';
+    let marker = 'url(#arrowhead)';
+    if (fromNode && fromNode.status === 'complete' && toNode && toNode.status === 'complete') { cls += ' done'; marker = 'url(#arrowhead-done)'; }
+    else if (fromNode && fromNode.status === 'complete') { cls += ' active'; marker = 'url(#arrowhead-active)'; }
+    html += `<path class="${cls}" d="M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}" marker-end="${marker}"/>`;
+  });
+
+  const skillColors = {planner:'#a78bfa',researcher:'#38bdf8',formatter:'#4ade80',critic:'#f59e0b',coder:'#f472b6',comparator:'#2dd4bf',sandbox_executor:'#fb923c',summariser:'#94a3b8',distiller:'#c084fc',retriever:'#06b6d4',browser:'#f0883e'};
+  nodes.forEach(n => {
+    const pos = positions[n.id];
+    if (!pos) return;
+    const {x, y} = pos;
+    const elapsed = n.elapsed ? `${n.elapsed.toFixed(1)}s` : '';
+    const accent = skillColors[n.skill] || '#64748b';
+    const question = (n.question || '').substring(0, 22);
+    html += `<g class="dag-node-group" onclick="showNodeDetail('${n.id}')" style="cursor:pointer;">`;
+    html += `<rect class="dag-node-rect ${n.status}" x="${x}" y="${y}" width="${NODE_W}" height="${NODE_H}" />`;
+    html += `<line x1="${x}" y1="${y}" x2="${x}" y2="${y + NODE_H}" stroke="${accent}" stroke-width="3" stroke-linecap="round"/>`;
+    html += `<text class="dag-node-id" x="${x + 10}" y="${y + 14}">${esc(n.id)}</text>`;
+    html += `<text class="dag-node-skill" x="${x + 10}" y="${y + 30}">${esc(n.skill)}</text>`;
+    if (question) html += `<text style="font-size:9px;fill:#8b949e;" x="${x + 10}" y="${y + 44}">${esc(question)}</text>`;
+    if (elapsed) html += `<text class="dag-node-time" x="${x + NODE_W - 6}" y="${y + 14}" text-anchor="end">${elapsed}</text>`;
+    html += `</g>`;
+  });
+
+  const defs = svg.querySelector('defs').outerHTML;
+  svg.innerHTML = defs + html;
+}
+
+function showNodeDetail(nodeId) {
+  const node = dagData.nodes.find(n => n.id === nodeId);
+  if (!node) return;
+  const detail = document.getElementById('dag-node-detail');
+  if (!detail) return;
+  let h = `<div style="padding:14px 16px;margin-top:16px;width:100%;">`;
+  h += `<div style="color:#58a6ff;font-weight:600;font-size:14px;margin-bottom:8px;">${esc(nodeId)} — ${esc(node.skill)}</div>`;
+  h += `<div style="color:#8b949e;font-size:12px;margin-bottom:4px;">Status: <span style="color:${node.status==='complete'?'#4ade80':'#f85149'};">${node.status}</span></div>`;
+  if (node.question) h += `<div style="color:#e2e8f0;font-size:12px;margin-bottom:4px;">Task: ${esc(node.question)}</div>`;
+  if (node.elapsed) h += `<div style="color:#64748b;font-size:11px;margin-bottom:8px;">Elapsed: ${node.elapsed.toFixed(1)}s</div>`;
+  const debugEl = document.getElementById('debug-output');
+  if (debugEl) {
+    const allIo = debugEl.querySelectorAll('div');
+    for (const div of allIo) {
+      if (div.textContent.includes(nodeId)) {
+        h += `<div style="border-top:1px solid #1e293b;padding-top:8px;font-size:11px;color:#94a3b8;white-space:pre-wrap;word-break:break-word;">${div.innerHTML}</div>`;
+        break;
+      }
+    }
+  }
+  h += `</div>`;
+  detail.innerHTML = h;
+}
+
+function updateDAG(nodeList, edgeList) {
+  dagData.nodes = nodeList || dagData.nodes;
+  dagData.edges = edgeList || dagData.edges;
+  renderDAG(dagData.nodes, dagData.edges);
+}
+
+function updateMetrics(d) {
+  if (d.nodes) document.getElementById('m-nodes').textContent = d.nodes;
+  if (d.wallclock) document.getElementById('m-wallclock').textContent = d.wallclock.toFixed(1) + 's';
+  if (d.serial) document.getElementById('m-serial').textContent = d.serial.toFixed(1) + 's';
+  if (d.speedup) document.getElementById('m-speedup').textContent = d.speedup.toFixed(2) + 'x';
+  if (d.tokens_in !== undefined) document.getElementById('m-tokens').textContent = `${d.tokens_in}/${d.tokens_out}`;
+  document.getElementById('m-cache').textContent = d.cache_hits || 0;
+  document.getElementById('m-recoveries').textContent = d.recoveries || 0;
+  document.getElementById('stat-nodes').textContent = d.nodes || '0';
+  document.getElementById('stat-tokens').textContent = (d.tokens_in||0) + (d.tokens_out||0);
+}
+
+function updateSkills(skills) {
+  const el = document.getElementById('skill-breakdown');
+  if (!skills || !Object.keys(skills).length) { el.innerHTML = '<span style="color:#475569;font-size:11px">—</span>'; return; }
+  const max = Math.max(...Object.values(skills).map(s => s.total_s), 0.1);
+  const colors = {planner:'#a78bfa',researcher:'#38bdf8',formatter:'#4ade80',critic:'#f59e0b',coder:'#f472b6',comparator:'#2dd4bf',sandbox_executor:'#fb923c',browser:'#f0883e',distiller:'#c084fc'};
+  let h = '';
+  for (const [name, d] of Object.entries(skills)) {
+    const pct = (d.total_s / max * 100);
+    const tokIn = d.tokens_in || 0;
+    const tokOut = d.tokens_out || 0;
+    const tokLabel = (tokIn || tokOut) ? ` | ${tokIn}↓ ${tokOut}↑` : '';
+    h += `<div class="skill-bar"><div class="skill-bar-label"><span>${name} (${d.calls}x)${tokLabel}</span><span>${d.total_s.toFixed(1)}s</span></div><div class="skill-bar-track"><div class="skill-bar-fill" style="width:${pct}%;background:${colors[name]||'#64748b'}"></div></div></div>`;
+  }
+  el.innerHTML = h;
+}
+
+let lastSessionId = null;
+let liveSessionId = null;  // tracks the currently running session
+let viewingHistory = false; // true when browsing a past session
+
+function backToLive() {
+  viewingHistory = false;
+  document.getElementById('back-to-live-btn').style.display = 'none';
+  // Reload the live session
+  if (liveSessionId) {
+    replaySession(liveSessionId);
+    viewingHistory = false; // override what replaySession sets
+  }
+  switchTab('logs');
+}
+
+function stopQuery() {
+  if (ws) { ws.close(); ws = null; }
+  clearInterval(timerInterval);
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('stop-btn').style.display = 'none';
+  document.getElementById('resume-btn').style.display = lastSessionId ? '' : 'none';
+  document.getElementById('stat-status').textContent = 'stopped';
+  addLog('system', 'Stopped. Click Resume to continue from last checkpoint.');
+}
+
+function resumeQuery() {
+  if (!lastSessionId) return;
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('resume-btn').style.display = 'none';
+  document.getElementById('stop-btn').style.display = '';
+  document.getElementById('stat-status').textContent = 'resuming';
+  runStart = Date.now();
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => { document.getElementById('stat-time').textContent = ((Date.now()-runStart)/1000).toFixed(1)+'s'; }, 100);
+  document.getElementById('tab-logs').innerHTML = '';
+  parallelContainer = null;
+  addLog('system', `Resuming session ${lastSessionId}...`);
+
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${protocol}//${location.host}/ws`);
+  ws.onopen = () => ws.send(JSON.stringify({type:'resume', session_id: lastSessionId}));
+  ws.onmessage = e => handleMsg(JSON.parse(e.data));
+  ws.onclose = () => { clearInterval(timerInterval); document.getElementById('run-btn').disabled = false; document.getElementById('stop-btn').style.display = 'none'; document.getElementById('stat-status').textContent = 'done'; };
+}
+
+function runQuery() {
+  const query = document.getElementById('query-input').value.trim();
+  if (!query) return;
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('stop-btn').style.display = '';
+  document.getElementById('stat-status').textContent = 'running';
+  document.getElementById('debug-output').innerHTML = '';
+  document.getElementById('browser-io-output').innerHTML = '';
+  document.getElementById('m-nodes').textContent = '—';
+  document.getElementById('m-wallclock').textContent = '—';
+  document.getElementById('m-serial').textContent = '—';
+  document.getElementById('m-speedup').textContent = '—';
+  document.getElementById('m-tokens').textContent = '—';
+  document.getElementById('m-cache').textContent = '0';
+  document.getElementById('m-recoveries').textContent = '0';
+  document.getElementById('skill-breakdown').innerHTML = '';
+  parallelContainer = null;
+  lastSessionId = null;
+  document.getElementById('tab-logs').innerHTML = '';
+  document.getElementById('answer-output').innerHTML = '';
+  // Reset report sections
+  document.getElementById('rpt-goal-body').textContent = 'Waiting for query...';
+  document.getElementById('rpt-dag-body').innerHTML = '';
+  document.getElementById('rpt-path-body').innerHTML = '—';
+  document.getElementById('rpt-actions-body').innerHTML = '';
+  document.getElementById('rpt-screenshots-body').innerHTML = '';
+  document.getElementById('rpt-data-body').textContent = '';
+  document.getElementById('rpt-table-body').innerHTML = '';
+  document.getElementById('rpt-cost-body').innerHTML = '';
+  dagData = { nodes: [], edges: [] };
+  renderDAG([], []);
+  runStart = Date.now();
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => { document.getElementById('stat-time').textContent = ((Date.now()-runStart)/1000).toFixed(1)+'s'; }, 100);
+  addLog('system', 'Starting DAG...');
+
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${protocol}//${location.host}/ws`);
+  ws.onopen = () => ws.send(JSON.stringify({type:'query', text:query}));
+  ws.onmessage = e => handleMsg(JSON.parse(e.data));
+  ws.onclose = () => { clearInterval(timerInterval); document.getElementById('run-btn').disabled = false; document.getElementById('stat-status').textContent = 'done'; };
+  // Section 1: User Goal
+  document.getElementById('rpt-goal-body').textContent = query;
+}
+
+function handleMsg(msg) {
+  if (msg.session_id) { lastSessionId = msg.session_id; liveSessionId = msg.session_id; }
+  // Don't append live events when viewing a past session
+  if (viewingHistory) return;
+  const nid = msg.node_id || '';
+  switch(msg.type) {
+    case 'node_start':
+      startNodeGroup(nid, msg.skill, msg.question);
+      // Store skill/question for use by memory_event
+      if (nid) window['_node_' + nid] = {skill: msg.skill, question: msg.question};
+      if (msg.dag) updateDAG(msg.dag, msg.edges);
+      break;
+    case 'memory_event':
+      addLogToNode(nid, 'memory', msg.description || 'reading context...');
+      const nodeInfo = window['_node_' + nid] || {};
+      addLogToNode(nid, 'perception', `Skill: ${nodeInfo.skill || ''}${nodeInfo.question ? ' → ' + nodeInfo.question : ''}`);
+      break;
+    case 'decision_event':
+      addLogToNode(nid, 'decision', msg.description || '');
+      break;
+    case 'node_complete':
+      endNodeGroup(nid, 'complete', msg.elapsed || 0);
+      if (parallelContainer) {
+        const running = parallelContainer.querySelectorAll('.node-status.running');
+        if (running.length === 0) parallelContainer = null;
+      }
+      if (msg.dag) updateDAG(msg.dag, msg.edges);
+      // Section 2: Update DAG in report
+      if (msg.dag) {
+        const dagBody = document.getElementById('rpt-dag-body');
+        dagBody.innerHTML = msg.dag.map(n =>
+          `<div style="margin:2px 0;"><span style="color:#58a6ff;">${esc(n.id)}</span> <span style="color:#f0883e;">${esc(n.skill)}</span> <span style="color:${n.status==='complete'?'#4ade80':n.status==='failed'?'#f85149':'#8b949e'};">(${n.status})</span>${n.question ? ' <span style="color:#8b949e;">— '+esc(n.question)+'</span>' : ''}</div>`
+        ).join('');
+      }
+      break;
+    case 'node_failed':
+      addLogToNode(nid, 'decision', `FAILED: ${(msg.error||'').substring(0,100)}`);
+      endNodeGroup(nid, 'failed', 0);
+      if (msg.dag) updateDAG(msg.dag, msg.edges);
+      break;
+    case 'tool_call':
+      addLogToNode(msg.node_id || nid, 'action', `${msg.tool}(${msg.args_preview||''})`);
+      break;
+    case 'browser_action': {
+      // Browser I/O tab — detailed per-turn logs
+      if (msg.action === 'browser_turn_io') {
+        const bio = document.getElementById('browser-io-output');
+        if (bio) {
+          let h = `<div style="margin:12px 0;padding:12px;background:#0d1117;border:1px solid #1e293b;border-radius:6px;">`;
+          h += `<div style="color:#58a6ff;font-weight:600;margin-bottom:8px;">Turn ${msg.turn} ${msg.screenshot_included ? '(+screenshot)' : '(text only)'} — ${msg.tokens_in} in, ${msg.tokens_out} out</div>`;
+          h += `<div style="color:#f59e0b;margin:4px 0;">ELEMENTS (${msg.elements_count}):</div>`;
+          h += `<pre style="color:#8b949e;font-size:11px;max-height:150px;overflow-y:auto;margin:4px 0;white-space:pre-wrap;">${esc(msg.elements_sent)}</pre>`;
+          if (msg.page_content_chars > 0) h += `<div style="color:#38bdf8;margin:4px 0;">PAGE CONTENT: ${msg.page_content_chars} chars</div>`;
+          if (msg.prior_actions && msg.prior_actions.length) h += `<div style="color:#a78bfa;margin:4px 0;">PRIOR: ${msg.prior_actions.map(a=>esc(a)).join(' | ')}</div>`;
+          h += `<div style="color:#4ade80;margin:8px 0 4px;">LLM RESPONSE:</div>`;
+          h += `<pre style="color:#e2e8f0;font-size:11px;background:#161b22;padding:8px;border-radius:4px;white-space:pre-wrap;">${esc(msg.llm_response)}</pre>`;
+          h += `</div>`;
+          bio.innerHTML += h;
+          bio.scrollTop = bio.scrollHeight;
+        }
+        break;
+      }
+
+      // Section 3: path badge (on a11y_done / vision_done / extract / deterministic)
+      const pathActions = ['a11y_done', 'vision_done', 'extract', 'deterministic', 'blocked'];
+      if (pathActions.includes(msg.action)) {
+        const pathBody = document.getElementById('rpt-path-body');
+        const layer = msg.action.replace('_done','');
+        const pathUrl = (msg.url || '').replace(/^https?:\/\//, '');
+        pathBody.innerHTML += `<div style="margin:4px 0;display:flex;align-items:center;gap:8px;"><span class="report-path-badge ${layer}">${layer.toUpperCase()}</span><span style="color:#e2e8f0;font-size:12px;">${esc(msg.node_id||nid)}</span><span style="color:#8b949e;font-size:11px;">${esc(pathUrl)}</span></div>`;
+      }
+
+      // Handle thought event — show in both Live Trace and Browser Replay
+      if (msg.action === 'a11y_thought' && msg.thought) {
+        addLogToNode(msg.node_id || nid, 'action', `[turn ${msg.turn}] thinking: ${msg.thought}`);
+        const actBody = document.getElementById('rpt-actions-body');
+        const thEl = document.createElement('div');
+        thEl.style.cssText = 'padding:4px 10px;margin:2px 0;color:#d2a8ff;font-size:11px;font-style:italic;border-left:2px solid #d2a8ff;';
+        thEl.textContent = `Turn ${msg.turn !== undefined ? msg.turn : '?'} thinking: ${msg.thought}`;
+        actBody.appendChild(thEl);
+        break;
+      }
+      const ba = msg.action || '';
+      const layer = ba.replace('_done','');
+      const pathActions2 = ['a11y_done', 'vision_done', 'extract', 'deterministic', 'blocked'];
+      let baDesc = '';
+      if (pathActions2.includes(ba)) {
+        const pathUrl = (msg.url || '').replace(/^https?:\/\//, '');
+        baDesc = `Layer: ${layer.toUpperCase()} → ${pathUrl}`;
+        if (msg.turns) baDesc += ` (${msg.turns} turns)`;
+        if (msg.chars) baDesc += ` (${msg.chars} chars extracted)`;
+      } else if (ba === 'a11y_action') {
+        const phase = msg.phase || '';
+        const prefix = phase === 'failed' ? 'FAILED: ' : phase === 'executing' ? '> ' : '';
+        const suffix = msg.error ? ` [${msg.error.substring(0,50)}]` : '';
+        baDesc = `${prefix}[turn ${msg.turn}] ${msg.action_type || 'action'} → "${msg.target||''}"${suffix}`;
+      } else if (ba === 'a11y_thought') {
+        baDesc = `[turn ${msg.turn}] thinking: ${msg.thought||''}`;
+      } else if (ba === 'vision_click') {
+        baDesc = `[turn ${msg.turn}] vision click [${msg.index}] → "${(msg.target||'').substring(0,40)}"`;
+      } else {
+        baDesc = `browser.${ba}`;
+        if (msg.turn !== undefined) baDesc += ` [turn ${msg.turn}]`;
+        if (msg.target) baDesc += ` "${msg.target.substring(0,40)}"`;
+        if (msg.action_type) baDesc += ` (${msg.action_type})`;
+      }
+      addLogToNode(msg.node_id || nid, 'action', baDesc);
+
+      // Section 4: Actions in report
+      if (msg.action_type || msg.action === 'a11y_action') {
+        const actBody = document.getElementById('rpt-actions-body');
+        const actEl = document.createElement('div');
+        actEl.className = 'report-action';
+        actEl.innerHTML = `<span class="turn">Turn ${msg.turn !== undefined ? msg.turn : '-'}</span> <span class="act-type">${esc(msg.action_type || msg.action)}</span> → <span class="act-target">"${esc(msg.target||'')}"</span>`;
+        actBody.appendChild(actEl);
+      }
+
+      // Section 5: Screenshots in report
+      if (msg.screenshot_path && msg.session_id) {
+        const imgUrl = `/api/screenshot/${msg.session_id}/${msg.screenshot_path.split('/screenshots/').pop()}`;
+        const ssBody = document.getElementById('rpt-screenshots-body');
+        const imgWrap = document.createElement('div');
+        const isFullpage = msg.screenshot_path.includes('fullpage');
+        imgWrap.style.cssText = 'flex:0 0 auto;';
+        imgWrap.innerHTML = `<div style="color:#8b949e;font-size:10px;margin-bottom:3px;">Turn ${msg.turn !== undefined ? msg.turn : '?'}${isFullpage ? ' (full page)' : ''}</div><img src="${imgUrl}" style="max-width:280px;max-height:${isFullpage ? '200px' : '400px'};object-fit:cover;object-position:top;border:1px solid #30363d;border-radius:4px;cursor:pointer;" onclick="window.open('${imgUrl}','_blank')" title="Click to view full size" />`;
+        ssBody.appendChild(imgWrap);
+      }
+      break;
+    }
+    // browser_turn_io is handled inside 'browser_action' case above
+    case 'cache_hit':
+      addLogToNode(msg.node_id || nid, 'memory', `Cache hit: ${msg.tool} — reusing previous result`);
+      break;
+    case 'parallel':
+      addParallelBanner(msg.count);
+      break;
+    case 'critic_verdict':
+      addLogToNode(nid, 'decision', `Critic: ${msg.verdict.toUpperCase()}${msg.rationale ? ' — '+msg.rationale.substring(0,80) : ''}`);
+      break;
+    case 'recovery':
+      addLog('perception', `Recovery triggered → re-planning (${(msg.reason||'').substring(0,60)})`);
+      break;
+    case 'planner':
+      addLogToNode(nid, 'decision', `Decomposed: ${msg.rationale||''} → ${msg.node_count} nodes`);
+      break;
+    case 'node_io': {
+      const debugEl = document.getElementById('debug-output');
+      let ioHtml = `<div style="margin:10px 0;padding:10px;background:#0d1117;border:1px solid #1e293b;border-radius:6px;">`;
+      ioHtml += `<div style="color:#a5b4fc;font-weight:600;margin-bottom:6px;">${esc(nid)} (${esc(msg.skill)})</div>`;
+      if (msg.question) {
+        ioHtml += `<div style="color:#f59e0b;margin:4px 0;">QUESTION: ${esc(msg.question)}</div>`;
+      }
+      if (msg.inputs && Object.keys(msg.inputs).length) {
+        ioHtml += `<div style="color:#38bdf8;margin:4px 0;">INPUTS:</div>`;
+        for (const [k, v] of Object.entries(msg.inputs)) {
+          ioHtml += `<div style="margin-left:12px;margin-bottom:4px;"><span style="color:#64748b;">${esc(k)}:</span> <span style="color:#cbd5e1;">${esc(v)}</span></div>`;
+        }
+      } else {
+        ioHtml += `<div style="color:#475569;margin:4px 0;">INPUTS: (none / USER_QUERY)</div>`;
+      }
+      if (msg.output) {
+        ioHtml += `<div style="color:#4ade80;margin:4px 0;">OUTPUT:</div>`;
+        ioHtml += `<div style="margin-left:12px;color:#cbd5e1;white-space:pre-wrap;">${esc(msg.output)}</div>`;
+      }
+      ioHtml += `</div>`;
+      debugEl.innerHTML += ioHtml;
+      debugEl.scrollTop = debugEl.scrollHeight;
+
+      // Section 6: Extracted data (from browser nodes)
+      if (msg.skill === 'browser' && msg.output) {
+        const dataBody = document.getElementById('rpt-data-body');
+        try {
+          const outObj = JSON.parse(msg.output);
+          const content = outObj.content || outObj.text || '';
+          if (content) dataBody.textContent += `[${nid}] (${content.length} chars):\n${content}\n\n`;
+        } catch(e) {
+          dataBody.textContent += `[${nid}]: ${msg.output.substring(0,400)}\n\n`;
+        }
+      }
+      break;
+    }
+    case 'metrics':
+      updateMetrics(msg);
+      updateSkills(msg.by_skill);
+      // Section 8: Cost summary in report
+      const wc = typeof msg.wallclock === 'number' ? msg.wallclock.toFixed(1)+'s' : (msg.wallclock||'—');
+      const sp = typeof msg.speedup === 'number' ? msg.speedup.toFixed(2)+'x' : (msg.speedup||'—');
+      document.getElementById('rpt-cost-body').innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+          <div><span style="color:#58a6ff;font-size:18px;font-weight:700;">${msg.nodes||0}</span><br><span style="color:#64748b;">Nodes</span></div>
+          <div><span style="color:#58a6ff;font-size:18px;font-weight:700;">${wc}</span><br><span style="color:#64748b;">Wall-clock</span></div>
+          <div><span style="color:#4ade80;font-size:18px;font-weight:700;">${sp}</span><br><span style="color:#64748b;">Speedup</span></div>
+          <div><span style="color:#f0883e;font-size:18px;font-weight:700;">${msg.tokens_in||0}</span><br><span style="color:#64748b;">Tokens in</span></div>
+          <div><span style="color:#f0883e;font-size:18px;font-weight:700;">${msg.tokens_out||0}</span><br><span style="color:#64748b;">Tokens out</span></div>
+          <div><span style="color:#4ade80;font-size:18px;font-weight:700;">${msg.cache_hits||0}</span><br><span style="color:#64748b;">Cache hits</span></div>
+        </div>
+        ${msg.by_skill ? '<div style="margin-top:10px;"><table style="width:100%;font-size:11px;color:#94a3b8;border-collapse:collapse;"><tr style="color:#79c0ff;border-bottom:1px solid #1e293b;"><th style="text-align:left;padding:4px;">Skill</th><th>Calls</th><th>Time</th><th>Tokens In</th><th>Tokens Out</th></tr>'+Object.entries(msg.by_skill).map(([s,d])=>`<tr><td style="padding:4px;">${s}</td><td style="text-align:center;">${d.calls}x</td><td style="text-align:center;">${d.total_s.toFixed(1)}s</td><td style="text-align:center;">${d.tokens_in||0}</td><td style="text-align:center;">${d.tokens_out||0}</td></tr>`).join('')+'</table></div>' : ''}
+      `;
+      break;
+    case 'answer': {
+      // Escape lone tildes so marked.js doesn't treat ~6M as strikethrough
+      const answerText = (msg.text || '').replace(/~(\d)/g, '\\~$1');
+      document.getElementById('answer-output').innerHTML = marked.parse(answerText);
+      // Section 7: Final comparison table in report
+      document.getElementById('rpt-table-body').innerHTML = marked.parse(answerText);
+      // Render LaTeX math with KaTeX (only $$ display math, not $ currency)
+      const answerEl = document.getElementById('answer-output');
+      answerEl.innerHTML = answerEl.innerHTML.replace(/\$\$(.*?)\$\$/gs, (m, tex) => {
+        try { return katex.renderToString(tex.trim(), {displayMode: true}); } catch(e) { return m; }
+      });
+      switchTab('answer');
+      clearInterval(timerInterval);
+      document.getElementById('run-btn').disabled = false;
+      document.getElementById('stop-btn').style.display = 'none';
+      document.getElementById('stat-status').textContent = 'done';
+      break;
+    }
+    case 'error':
+      addLog('system', `ERROR: ${msg.text}`);
+      document.getElementById('run-btn').disabled = false;
+      break;
+  }
+}
+
+function loadSessions() {
+  fetch('/api/sessions').then(r=>r.json()).then(sessions => {
+    const el = document.getElementById('sessions-list');
+    el.innerHTML = sessions.map(s => `<div class="session-item" onclick="replaySession('${s.id}')"><div class="sid">${s.id}</div><div class="qp">${esc(s.query||'')}</div></div>`).join('');
+  }).catch(()=>{});
+}
+
+function replaySession(sid) {
+  viewingHistory = true;
+  // Show "Back to Live" button if a live run is active
+  if (liveSessionId && ws && ws.readyState === WebSocket.OPEN) {
+    document.getElementById('back-to-live-btn').style.display = '';
+  }
+  fetch(`/api/session/${sid}`).then(r=>r.json()).then(data => {
+    document.getElementById('tab-logs').innerHTML = '';
+    parallelContainer = null;
+    runStart = Date.now();
+    lastSessionId = sid;
+    if (data.query) document.getElementById('query-input').value = data.query;
+    updateDAG(data.dag || [], data.edges || []);
+    if (data.metrics) { updateMetrics(data.metrics); updateSkills(data.metrics.by_skill); }
+
+    // Render rich logs grouped by node
+    const nodes = data.dag || [];
+    const hasIncomplete = nodes.some(n => n.status === 'pending' || n.status === 'running');
+
+    // Group parallel nodes
+    const layerGroups = {};
+    nodes.forEach(n => { if (!layerGroups[n.layer]) layerGroups[n.layer] = []; layerGroups[n.layer].push(n); });
+
+    for (const layer of Object.keys(layerGroups).sort((a,b)=>a-b)) {
+      const group = layerGroups[layer];
+      // Only show parallel banner if nodes are actually parallel workers (same skill, not planner)
+      const isParallel = group.length > 1 &&
+        group[0].status === 'complete' &&
+        group[0].skill !== 'planner' &&
+        group.every(n => n.skill === group[0].skill);
+      if (isParallel) {
+        addParallelBanner(group.length);
+      }
+      for (const n of group) {
+        if (n.status === 'complete' || n.status === 'failed') {
+          startNodeGroup(n.id, n.skill, n.question);
+          addLogToNode(n.id, 'memory', data.node_io ? (data.node_io.find(io => io.node_id === n.id)?.inputs ? Object.keys(data.node_io.find(io => io.node_id === n.id).inputs).length + ' inputs' : 'no inputs') : '');
+          addLogToNode(n.id, 'perception', `Skill: ${n.skill}${n.question ? ' → ' + n.question : ''}`);
+          // For browser nodes: show per-turn actions
+          const nio = data.node_io ? data.node_io.find(io => io.node_id === n.id) : null;
+          if (nio && nio.skill === 'browser' && nio.output) {
+            let bOut = {};
+            try { bOut = typeof nio.output === 'string' ? JSON.parse(nio.output) : nio.output; } catch(e) {}
+            const bLayer = bOut.layer_used || '';
+            const bActions = bOut.actions || [];
+            if (bLayer) addLogToNode(n.id, 'action', `Layer: ${bLayer.toUpperCase()}`);
+            for (const a of bActions) {
+              addLogToNode(n.id, 'action', `[turn ${a.turn !== undefined ? a.turn : '-'}] ${a.type||''} → "${a.target||''}"${a.error ? ' ERR: '+a.error : ''}`);
+            }
+            if (bOut.content) {
+              addLogToNode(n.id, 'decision', `Extracted ${bOut.content.length} chars`);
+            } else {
+              addLogToNode(n.id, 'decision', n.status === 'failed' ? 'FAILED: could not extract' : n.status);
+            }
+          } else if (nio && nio.output) {
+            const out = typeof nio.output === 'string' ? nio.output.substring(0, 150) : JSON.stringify(nio.output).substring(0, 150);
+            addLogToNode(n.id, 'decision', out);
+          } else {
+            addLogToNode(n.id, 'decision', n.status);
+          }
+          const trace = (data.logs || []).find(l => l.message && l.message.startsWith(n.id));
+          const elapsed = trace ? parseFloat((trace.message.match(/(\d+\.\d+)s/) || [0,0])[1]) : 0;
+          endNodeGroup(n.id, n.status, elapsed);
+        } else if (n.status === 'pending' || n.status === 'running') {
+          startNodeGroup(n.id, n.skill, n.question);
+          endNodeGroup(n.id, 'pending', 0);
+          addLogToNode(n.id, 'system', `Pending — will run on resume`);
+        }
+      }
+      if (isParallel) {
+        parallelContainer = null;
+      }
+    }
+
+    // Show resume button if there are incomplete nodes
+    if (hasIncomplete) {
+      document.getElementById('resume-btn').style.display = '';
+      addLog('system', `Session ${sid} has incomplete nodes — click Resume to continue.`);
+    } else {
+      document.getElementById('resume-btn').style.display = 'none';
+    }
+
+    // Populate Node I/O tab
+    const debugEl = document.getElementById('debug-output');
+    debugEl.innerHTML = '';
+    if (data.node_io) {
+      for (const nio of data.node_io) {
+        let ioHtml = `<div style="margin:10px 0;padding:10px;background:#0d1117;border:1px solid #1e293b;border-radius:6px;">`;
+        ioHtml += `<div style="color:#a5b4fc;font-weight:600;margin-bottom:6px;">${esc(nio.node_id)} (${esc(nio.skill)})</div>`;
+        if (nio.question) {
+          ioHtml += `<div style="color:#f59e0b;margin:4px 0;">QUESTION: ${esc(nio.question)}</div>`;
+        }
+        if (nio.inputs && Object.keys(nio.inputs).length) {
+          ioHtml += `<div style="color:#38bdf8;margin:4px 0;">INPUTS:</div>`;
+          for (const [k, v] of Object.entries(nio.inputs)) {
+            ioHtml += `<div style="margin-left:12px;margin-bottom:4px;white-space:pre-wrap;"><span style="color:#64748b;">${esc(k)}:</span> <span style="color:#cbd5e1;">${esc(v)}</span></div>`;
+          }
+        } else {
+          ioHtml += `<div style="color:#475569;margin:4px 0;">INPUTS: (none)</div>`;
+        }
+        if (nio.output) {
+          ioHtml += `<div style="color:#4ade80;margin:4px 0;">OUTPUT:</div>`;
+          ioHtml += `<div style="margin-left:12px;color:#cbd5e1;white-space:pre-wrap;">${esc(nio.output)}</div>`;
+        }
+        ioHtml += `</div>`;
+        debugEl.innerHTML += ioHtml;
+      }
+    }
+
+    // Populate all 8 report sections from saved session
+    // 1. Goal
+    document.getElementById('rpt-goal-body').textContent = data.query || '';
+    // 2. DAG
+    document.getElementById('rpt-dag-body').innerHTML = (data.dag||[]).map(n =>
+      `<div style="margin:2px 0;"><span style="color:#58a6ff;">${esc(n.id)}</span> <span style="color:#f0883e;">${esc(n.skill)}</span> <span style="color:${n.status==='complete'?'#4ade80':n.status==='failed'?'#f85149':'#8b949e'};">(${n.status})</span>${n.question ? ' <span style="color:#8b949e;">— '+esc(n.question)+'</span>' : ''}</div>`
+    ).join('');
+
+    // 3,4,5,6 from browser node_io
+    const rptPathBody = document.getElementById('rpt-path-body');
+    const rptActBody = document.getElementById('rpt-actions-body');
+    const rptSSBody = document.getElementById('rpt-screenshots-body');
+    const rptDataBody = document.getElementById('rpt-data-body');
+    rptPathBody.innerHTML = '';
+    rptActBody.innerHTML = '';
+    rptSSBody.innerHTML = '';
+    rptDataBody.textContent = '';
+    let hasBrowserData = false;
+    if (data.node_io) {
+      for (const nio of data.node_io) {
+        if (nio.skill !== 'browser') continue;
+        let output = {};
+        try { output = typeof nio.output === 'string' ? JSON.parse(nio.output) : (nio.output || {}); } catch(e) {}
+        const layer = output.layer_used || '';
+        const actions = output.actions || [];
+        const screenshots = output.screenshots || [];
+        const content = output.content || output.text || '';
+
+        if (layer || actions.length) hasBrowserData = true;
+
+        // 3. Path
+        if (layer) {
+          const pathUrl = (output.final_url || '').replace(/^https?:\/\//, '');
+          rptPathBody.innerHTML += `<div style="margin:4px 0;display:flex;align-items:center;gap:8px;"><span class="report-path-badge ${layer}">${layer.toUpperCase()}</span><span style="color:#e2e8f0;font-size:12px;">${esc(nio.node_id)}</span><span style="color:#8b949e;font-size:11px;">${esc(pathUrl)}</span></div>`;
+        }
+
+        // 4. Actions
+        for (const a of actions) {
+          const el = document.createElement('div');
+          el.className = 'report-action';
+          el.innerHTML = `<span class="turn">Turn ${a.turn !== undefined ? a.turn : '-'}</span> <span class="act-type">${esc(a.type||'')}</span> → <span class="act-target">"${esc(a.target||'')}"</span>${a.error ? ' <span class="act-error">ERR: '+esc(a.error)+'</span>' : ''}`;
+          rptActBody.appendChild(el);
+        }
+
+        // 5. Screenshots
+        for (const sp of screenshots) {
+          const fname = sp.split('/screenshots/').pop();
+          const imgUrl = `/api/screenshot/${sid}/${fname}`;
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'flex:0 0 auto;';
+          wrap.innerHTML = `<div style="color:#8b949e;font-size:10px;margin-bottom:3px;">${esc(fname)}</div><img src="${imgUrl}" style="max-width:280px;border:1px solid #30363d;border-radius:4px;cursor:pointer;" onclick="window.open('${imgUrl}','_blank')" onerror="this.parentElement.style.display='none'" />`;
+          rptSSBody.appendChild(wrap);
+        }
+
+        // 6. Extracted data
+        if (content) rptDataBody.textContent += `[${nio.node_id}] (${content.length} chars):\n${content}\n\n`;
+      }
+    }
+
+    // 7. Final table
+    if (data.answer) {
+      const ansText = (data.answer || '').replace(/~(\d)/g, '\\~$1');
+      document.getElementById('answer-output').innerHTML = marked.parse(ansText);
+      document.getElementById('rpt-table-body').innerHTML = marked.parse(ansText);
+    }
+
+    // 8. Cost from metrics
+    if (data.metrics) {
+      const m = data.metrics;
+      document.getElementById('rpt-cost-body').innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+          <div><span style="color:#58a6ff;font-size:18px;font-weight:700;">${m.nodes||0}</span><br><span style="color:#64748b;">Nodes</span></div>
+          <div><span style="color:#58a6ff;font-size:18px;font-weight:700;">${m.wallclock||'—'}</span><br><span style="color:#64748b;">Wall-clock</span></div>
+          <div><span style="color:#4ade80;font-size:18px;font-weight:700;">${m.speedup||'—'}</span><br><span style="color:#64748b;">Speedup</span></div>
+          <div><span style="color:#f0883e;font-size:18px;font-weight:700;">${m.tokens_in||0}</span><br><span style="color:#64748b;">Tokens in</span></div>
+          <div><span style="color:#f0883e;font-size:18px;font-weight:700;">${m.tokens_out||0}</span><br><span style="color:#64748b;">Tokens out</span></div>
+          <div><span style="color:#4ade80;font-size:18px;font-weight:700;">${m.cache_hits||0}</span><br><span style="color:#64748b;">Cache hits</span></div>
+        </div>
+        ${m.by_skill ? '<div style="margin-top:10px;"><table style="width:100%;font-size:11px;color:#94a3b8;border-collapse:collapse;"><tr style="color:#79c0ff;border-bottom:1px solid #1e293b;"><th style="text-align:left;padding:4px;">Skill</th><th>Calls</th><th>Time</th><th>Tokens In</th><th>Tokens Out</th></tr>'+Object.entries(m.by_skill).map(([s,d])=>`<tr><td style="padding:4px;">${s}</td><td style="text-align:center;">${d.calls}x</td><td style="text-align:center;">${(d.total_s||0).toFixed?d.total_s.toFixed(1):d.total_s}s</td><td style="text-align:center;">${d.tokens_in||0}</td><td style="text-align:center;">${d.tokens_out||0}</td></tr>`).join('')+'</table></div>' : ''}`;
+    }
+
+    if (hasBrowserData) switchTab('browser'); else if (data.answer) switchTab('answer'); else switchTab('logs');
+
+    // Load persisted browser I/O
+    fetch(`/api/browser_io/${sid}`).then(r=>r.json()).then(bioData => {
+      const bio = document.getElementById('browser-io-output');
+      bio.innerHTML = '';
+      for (const item of bioData) {
+        let h = `<div style="margin:12px 0;padding:12px;background:#0d1117;border:1px solid #1e293b;border-radius:6px;">`;
+        h += `<div style="color:#58a6ff;font-weight:600;margin-bottom:8px;">Turn ${item.turn} ${item.screenshot_included ? '(+screenshot)' : '(text only)'} — ${item.tokens_in} in, ${item.tokens_out} out</div>`;
+        h += `<div style="color:#f59e0b;margin:4px 0;">ELEMENTS (${item.elements_count}):</div>`;
+        h += `<pre style="color:#8b949e;font-size:11px;max-height:150px;overflow-y:auto;margin:4px 0;white-space:pre-wrap;">${esc(item.elements_sent)}</pre>`;
+        if (item.page_content_chars > 0) h += `<div style="color:#38bdf8;margin:4px 0;">PAGE CONTENT: ${item.page_content_chars} chars</div>`;
+        if (item.prior_actions && item.prior_actions.length) h += `<div style="color:#a78bfa;margin:4px 0;">PRIOR: ${item.prior_actions.map(a=>esc(a)).join(' | ')}</div>`;
+        h += `<div style="color:#4ade80;margin:8px 0 4px;">LLM RESPONSE:</div>`;
+        h += `<pre style="color:#e2e8f0;font-size:11px;background:#161b22;padding:8px;border-radius:4px;white-space:pre-wrap;">${esc(item.llm_response)}</pre>`;
+        h += `</div>`;
+        bio.innerHTML += h;
+      }
+    }).catch(()=>{});
+  }).catch(()=>{});
+}
+
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function clearState() {
+  fetch('/api/clear', {method:'POST'}).then(()=>{
+    document.getElementById('tab-logs').innerHTML = '';
+    document.getElementById('answer-output').innerHTML = '';
+    document.getElementById('sessions-list').innerHTML = '';
+    document.getElementById('dag-svg').innerHTML = document.getElementById('dag-svg').querySelector('defs').outerHTML;
+    runStart = Date.now();
+    addLog('system', 'State cleared.');
+  });
+}
+
+function toggleRightPanel() {
+  const panel = document.querySelector('.right-panel');
+  panel.classList.toggle('open');
+  const btn = document.querySelector('.toggle-panel');
+  btn.textContent = panel.classList.contains('open') ? 'Metrics x' : 'Metrics +';
+}
+function closeRightPanel() {
+  document.querySelector('.right-panel').classList.remove('open');
+  document.querySelector('.toggle-panel').textContent = 'Metrics +';
+}
+
+// No draggable divider in new layout
+
+// Init
+loadSessions();
+</script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+skills:
+  planner:
+    prompt: prompts/planner.md
+    tools_allowed: []
+    temperature: 0.4
+    max_tokens: 2048
+
+  researcher:
+    prompt: prompts/researcher.md
+    tools_allowed: [web_search, fetch_url, create_file]
+    temperature: 0.7
+    max_tokens: 2048
+
+  retriever:
+    prompt: prompts/retriever.md
+    tools_allowed: [search_knowledge, read_file]
+    temperature: 0.3
+    max_tokens: 1024
+
+  distiller:
+    prompt: prompts/distiller.md
+    tools_allowed: []
+    temperature: 0.1
+    max_tokens: 1024
+
+  summariser:
+    prompt: prompts/summariser.md
+    tools_allowed: []
+    temperature: 0.3
+    max_tokens: 1024
+
+  critic:
+    prompt: prompts/critic.md
+    tools_allowed: [count_syllables, count_characters]
+    temperature: 0.0
+    max_tokens: 512
+
+  formatter:
+    prompt: prompts/formatter.md
+    tools_allowed: []
+    temperature: 0.3
+    max_tokens: 2048
+
+  coder:
+    prompt: prompts/coder.md
+    tools_allowed: []
+    temperature: 0.2
+    max_tokens: 4096
+    internal_successors: [sandbox_executor]
+
+  sandbox_executor:
+    prompt: prompts/sandbox_executor.md
+    tools_allowed: []
+    temperature: 0.0
+    max_tokens: 512
+
+  comparator:
+    prompt: prompts/comparator.md
+    tools_allowed: []
+    temperature: 0.2
+    max_tokens: 1024
+
+  screener:
+    prompt: prompts/screener.md
+    tools_allowed: [web_search]
+    temperature: 0.3
+    max_tokens: 2048
+
+  fact_checker:
+    prompt: prompts/fact_checker.md
+    tools_allowed: [web_search]
+    temperature: 0.2
+    max_tokens: 2048
+
+  browser:
+    prompt: prompts/browser.md
+    tools_allowed: []
+    temperature: 0.3
+    max_tokens: 2048
+
+  shell:
+    prompt: prompts/shell.md
+    tools_allowed: [run_command]
+    temperature: 0.2
+    max_tokens: 2048
+
