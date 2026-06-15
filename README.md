@@ -332,7 +332,7 @@ Find 2BHK flats for rent under 35000 in Koramangala on https://www.nobroker.in
 
 ```
 .
-├── browser/                 # NEW — Browser skill package
+├── browser/                 # Browser skill package (NEW)
 │   ├── skill.py             # Cascade orchestrator + interaction loop
 │   ├── driver.py            # Playwright lifecycle, stealth, overlay dismissal
 │   ├── dom.py               # Element detection (2-pass + dedup)
@@ -340,22 +340,29 @@ Find 2BHK flats for rent under 35000 in Koramangala on https://www.nobroker.in
 │   ├── highlight.py         # Set-of-marks annotation for vision layer
 │   ├── precondition.py      # Gateway block detection
 │   └── selectors.py         # Layer 2: site-specific CSS selectors
-├── agent/                   # LLM gateway (from Session 8)
+├── core/                    # Infrastructure modules
+│   ├── cache.py             # LLM response caching
+│   ├── persistence.py       # Atomic session state persistence
+│   ├── recovery.py          # Failure classification + re-planning
+│   ├── replay.py            # Session replay logic
+│   ├── report.py            # Session report generator
+│   ├── sandbox.py           # Code execution sandbox
+│   ├── schemas_v2.py        # Typed contracts (AgentResult, NodeSpec, RunBudget)
+│   └── tracing.py           # Per-node span logging
+├── agent/                   # LLM gateway
 │   ├── config.py            # Settings (profile, region)
-│   └── llm_gateway/         # LLM gateway for accessing multiple providers
+│   └── llm_gateway/         # Bedrock client with credential refresh
 ├── prompts/                 # Skill prompt templates
-├── flow.py                  # DAG orchestrator (from Session 8, +browser dispatch)
-├── skills.py                # Skill catalogue loader
-├── schemas_v2.py            # Typed contracts (AgentResult, NodeSpec, RunBudget)
-├── dashboard_server.py      # FastAPI + WebSocket server
+├── S9-Screenshots/          # Demo screenshots
+├── flow.py                  # DAG orchestrator (entry point)
+├── dashboard_server.py      # FastAPI + WebSocket server (entry point)
 ├── dashboard_s8.html        # Single-page dashboard UI
-├── report.py                # Session replay report generator
-├── persistence.py           # Atomic session state persistence
-├── tracing.py               # Per-node span logging
+├── skills.py                # Skill catalogue loader
 ├── mcp_server.py            # MCP tools (web_search, fetch_url, run_command)
 ├── mcp_runner.py            # Tool-use loop
-├── agent_config.yaml        # 11 skills: researcher, retriever, distiller, summariser, critic, formatter, coder, comparator, screener, fact_checker, browser
-└── pyproject.toml           # Dependencies
+├── agent_config.yaml        # 11 skills including browser
+├── pyproject.toml           # Dependencies
+└── .env.example             # Configuration template
 ```
 
 ---
